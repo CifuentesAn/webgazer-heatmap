@@ -396,19 +396,33 @@
   // =============================
   const statusText = document.getElementById('statusText');
   async function startCamera(){
+    // Solicita permisos de forma explícita primero (mejor compatibilidad)
     statusText.textContent = 'Solicitando cámara...';
     try{
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+        alert('Este navegador no soporta getUserMedia. Prueba Chrome/Edge/Firefox actualizados.');
+        statusText.textContent = 'getUserMedia no disponible';
+        return;
+      }
+
+      // Pre‑flight: pedir acceso a la cámara principal (y cerrar de inmediato)
+      const constraints = { video: { facingMode: 'user', width: {ideal: 1280}, height: {ideal: 720} }, audio: false };
+      const preflight = await navigator.mediaDevices.getUserMedia(constraints);
+      preflight.getTracks().forEach(t=>t.stop());
+
+      // Iniciar WebGazer
       await webgazer.setGazeListener(()=>{}).begin();
-      // Mejorar performance
-      webgazer.params.showVideoPreview = true; // lo ocultamos por CSS
+      webgazer.params.showVideoPreview = true; // oculto por CSS
       webgazer.params.showFaceOverlay = false;
       webgazer.params.showFaceFeedbackBox = false;
       statusText.textContent = 'Cámara lista';
     }catch(err){
-      console.error(err);
-      alert('No se pudo iniciar la cámara. Abre la página por HTTPS o localhost y acepta permisos.');
+      console.error('Error cámara:', err);
+      const msg = `${err && err.name ? err.name+': ' : ''}${err && err.message ? err.message : 'Error desconocido'}`;
+      alert('No se pudo iniciar la cámara.\n' + msg + '\n\nRevisa:\n1) Abrir por HTTPS (GitHub Pages ya lo es).\n2) Permisos del sitio (botón del candado → Cámara → Permitir).\n3) Ajustes del navegador: Privacidad/Sitios → Cámara (permitir para *github.io*).\n4) Windows: Configuración → Privacidad → Cámara → permitir a apps de escritorio.\n5) Cierra otras apps que usen la cámara y recarga.');
       statusText.textContent = 'Error al iniciar cámara';
     }
+  }
   }
 
   function viewportToImageNorm(x,y){
