@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebGazer Básico (v0.3)</title>
+  <style>
+    body{margin:0;font:14px/1.5 system-ui,Segoe UI,Roboto,Helvetica,Arial;background:#0b0f14;color:#e8eef6}
+    .app{display:flex;min-height:100vh}
+    aside{width:330px;background:#0e131a;border-right:1px solid #101720;padding:16px;overflow:auto}
+    main{flex:1;display:flex;flex-direction:column}
+    h1{margin:0 0 12px;font-size:18px}
+    .card{background:#0e141b;border:1px solid #121a24;border-radius:12px;padding:12px;margin-bottom:12px}
+    label{display:block;font-size:12px;color:#aab4c2;margin-bottom:6px}
+    input[type=file],input[type=number]{width:100%;padding:8px;border-radius:8px;border:1px solid #1a2430;background:#0b1016;color:#e8eef6}
+    .btn{border:1px solid #1f2a37;background:#121922;color:#e8eef6;padding:8px 12px;border-radius:10px;cursor:pointer}
+    .btn.ok{background:#1e8e3e}
+    .btn.warn{background:#b35c0f}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .list{display:flex;flex-direction:column;gap:8px}
+    .item{display:flex;gap:8px;align-items:center;background:#0c1218;border:1px solid #141c25;padding:6px 8px;border-radius:10px}
+    .item img{width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid #1b2430}
+    .muted{color:#9aa6b2;font-size:12px}
+
+    .toolbar{position:sticky;top:0;background:#0f141b;border-bottom:1px solid #111922;padding:10px 14px;display:flex;gap:10px;align-items:center}
+    .spacer{flex:1}
+    .stage-wrap{flex:1;display:flex;padding:16px}
+    .stage{flex:1;position:relative;display:grid;place-items:center;background:#0b0f14}
+    .canvas-layer{position:absolute;inset:0}
+    #imageCanvas{position:absolute;inset:0}
+    #heatCanvas,#pointsCanvas{position:absolute;inset:0;pointer-events:none}
+
+    /* Calibración */
+    .calib-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.35)}
+    .calib-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr)}
+    .calib-dot{width:16px;height:16px;border-radius:50%;background:#1b84ff;box-shadow:0 0 0 6px rgba(24,112,242,.2),0 0 0 14px rgba(24,112,242,.07);margin:auto;cursor:crosshair}
+    .calib-note{position:absolute;bottom:16px;left:16px;right:16px;background:rgba(9,12,16,.85);border:1px solid #141b24;border-radius:12px;padding:10px;color:#cbd5e1}
+
+    /* Ocultar debug de WebGazer */
+    video#webgazerVideoFeed,canvas#webgazerVideoCanvas,canvas#webgazerFaceOverlay,canvas#webgazerFaceFeedbackBox{display:none!important}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <h1>Panel básico</h1>
+      <div class="card">
+        <h2>1 · Imágenes</h2>
+        <label>Sube 1 o varias imágenes (JPG/PNG)</label>
+        <input id="fileInput" type="file" accept="image/*" multiple />
+        <div class="muted" style="margin-top:6px">Luego pulsa 👁 para mostrar una imagen.</div>
+        <div id="imageList" class="list" style="margin-top:10px"></div>
+      </div>
+      <div class="card">
+        <h2>2 · Parámetros</h2>
+        <div class="row"><div style="flex:1"><label>Duración por imagen (s)</label><input id="trialSeconds" type="number" min="1" max="120" value="6"></div>
+        <div style="flex:1"><label>Radio heatmap (px)</label><input id="hmRadius" type="number" min="10" max="150" value="60"></div></div>
+        <div class="row" style="margin-top:8px"><div style="flex:1"><label>Intensidad (0.1–2.0)</label><input id="hmIntensity" type="number" step="0.1" min="0.1" max="2.0" value="1.0"></div>
+        <div style="flex:1"><label>FPS muestreo (Hz)</label><input id="sampleHz" type="number" min="5" max="60" value="30"></div></div>
+      </div>
+      <div class="card">
+        <h2>3 · Flujo</h2>
+        <div class="row"><button id="btnStartCam" class="btn">Iniciar cámara</button><button id="btnCalib" class="btn">Calibrar</button></div>
+        <div class="row" style="margin-top:8px"><button id="btnRun" class="btn ok">Iniciar estudio</button><button id="btnStop" class="btn warn">Detener</button></div>
+      </div>
+      <div class="card">
+        <h2>Exportar</h2>
+        <div class="row"><button id="btnExportCSV" class="btn">Exportar CSV</button><button id="btnSaveComposite" class="btn">Heatmap + Imagen</button></div>
+      </div>
+    </aside>
+    <main>
+      <div class="toolbar">
+        <div>Estado: <span id="statusText">Listo (v0.3)</span></div>
+        <div class="spacer"></div>
+        <div class="muted">Imagen: <span id="imgIndex">–</span> · Tiempo: <span id="timer">0.0s</span> · Muestras: <span id="sampleCount">0</span></div>
+      </div>
+      <div class="stage-wrap">
+        <div class="stage" id="stage">
+          <canvas id="imageCanvas" class="canvas-layer"></canvas>
+          <canvas id="heatCanvas" class="canvas-layer"></canvas>
+          <canvas id="pointsCanvas" class="canvas-layer"></canvas>
+
+          <div class="calib-overlay" id="calibOverlay">
+            <div class="calib-grid" id="calibGrid"></div>
+            <div class="calib-note">Haz 5–10 clics en cada uno de los 9 puntos (se pondrán verdes). No muevas tu postura entre calibración y prueba.</div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://webgazer.cs.brown.edu/webgazer.js" defer></script>
+  <script>
+  // Utilidades
+  const $ = s => document.querySelector(s);
+  const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+  // Estado
+  let images = []; // {id,name,url,imgEl,w,h,_rect}
+  let currentIndex = -1;
+  let collecting = false; let sampleInterval=null; let startTime=0;
+  const pointsByImage = new Map(); // id -> [{t,x,y}]
+
+  // Parámetros
+  const params = { trialSeconds:6, hmRadius:60, hmIntensity:1.0, sampleHz:30 };
+
+  // Canvases
+  const stageEl = $('#stage');
+  const imageCanvas = $('#imageCanvas');
+  const heatCanvas = $('#heatCanvas');
+  const pointsCanvas = $('#pointsCanvas');
+  const iCtx = imageCanvas.getContext('2d');
+  const hCtx = heatCanvas.getContext('2d');
+  const pCtx = pointsCanvas.getContext('2d');
+
+  function resize(){
+    const r = stageEl.getBoundingClientRect();
+    [imageCanvas,heatCanvas,pointsCanvas].forEach(c=>{ c.width=Math.max(320, r.width|0); c.height=Math.max(240, r.height|0); });
+    drawCurrentImage(); drawOverlays();
+  }
+  window.addEventListener('resize', resize);
+
+  // Carga y lista
+  $('#fileInput').addEventListener('change', async (e)=>{
+    for (const f of Array.from(e.target.files||[])){
+      if (!f.type.startsWith('image/')) continue;
+      const url = URL.createObjectURL(f);
+      const img = new Image(); await new Promise(res=>{img.onload=res; img.src=url;});
+      const it = { id: crypto.randomUUID(), name:f.name, url, imgEl:img, w:img.naturalWidth, h:img.naturalHeight };
+      images.push(it); pointsByImage.set(it.id, []);
+    }
+    renderList(); if (currentIndex===-1 && images.length){ currentIndex=0; drawCurrentImage(); }
+  });
+
+  function renderList(){
+    const list = $('#imageList'); list.innerHTML='';
+    images.forEach((it,idx)=>{
+      const div=document.createElement('div'); div.className='item';
+      div.innerHTML=`<img src="${it.url}"><div style="flex:1"><div>${it.name}</div><div class="muted">${it.w}×${it.h}px</div></div>
+      <div class="row"><button class="btn" title="Ver">👁</button><button class="btn" title="Arriba">↑</button><button class="btn" title="Abajo">↓</button><button class="btn" title="Borrar">✕</button></div>`;
+      const [bView,bUp,bDown,bDel]=div.querySelectorAll('button');
+      bView.onclick=()=>{ currentIndex=idx; drawCurrentImage(); };
+      bUp.onclick=()=>{ if(idx>0){ const t=images[idx-1]; images[idx-1]=images[idx]; images[idx]=t; renderList(); } };
+      bDown.onclick=()=>{ if(idx<images.length-1){ const t=images[idx+1]; images[idx+1]=images[idx]; images[idx]=t; renderList(); } };
+      bDel.onclick=()=>{ if(confirm('¿Eliminar?')){ URL.revokeObjectURL(it.url); images.splice(idx,1); renderList(); if(currentIndex>=images.length) currentIndex=images.length-1; drawCurrentImage(); } };
+      list.appendChild(div);
+    });
+  }
+
+  // Dibujo imagen y overlays
+  function drawCurrentImage(){
+    iCtx.clearRect(0,0,imageCanvas.width,imageCanvas.height);
+    if (currentIndex<0 || !images[currentIndex]){ $('#imgIndex').textContent='–'; return; }
+    const img = images[currentIndex].imgEl;
+    const sw=imageCanvas.width, sh=imageCanvas.height;
+    const s = Math.min(sw/img.naturalWidth, sh/img.naturalHeight);
+    const dw=img.naturalWidth*s, dh=img.naturalHeight*s; const dx=(sw-dw)/2, dy=(sh-dh)/2;
+    iCtx.imageSmoothingQuality='high'; iCtx.drawImage(img,dx,dy,dw,dh);
+    images[currentIndex]._rect={dx,dy,dw,dh}; $('#imgIndex').textContent=`${currentIndex+1}/${images.length}`;
+  }
+  function drawOverlays(){
+    hCtx.clearRect(0,0,heatCanvas.width,heatCanvas.height);
+    pCtx.clearRect(0,0,pointsCanvas.width,pointsCanvas.height);
+    if (currentIndex<0 || !images[currentIndex]) return;
+    const it=images[currentIndex]; const rect=it._rect; if(!rect) return;
+    const pts = pointsByImage.get(it.id)||[];
+    // puntos
+    pCtx.fillStyle='rgba(255,255,255,.8)';
+    for (const pt of pts){ const x=rect.dx+pt.x*rect.dw, y=rect.dy+pt.y*rect.dh; pCtx.beginPath(); pCtx.arc(x,y,2,0,Math.PI*2); pCtx.fill(); }
+    // heatmap
+    if (pts.length){ const hm=renderHeatmap(pts, rect.dw, rect.dh, params.hmRadius, params.hmIntensity); hCtx.globalAlpha=.95; hCtx.drawImage(hm,rect.dx,rect.dy); }
+  }
+  function colorLUT(t){
+    const stops=[[0,[0,32,128]],[.2,[0,140,255]],[.4,[0,200,120]],[.6,[255,230,0]],[.8,[255,140,0]],[1,[230,30,0]]];
+    for(let i=0;i<stops.length-1;i++){const[p0,c0]=stops[i],[p1,c1]=stops[i+1];if(t>=p0&&t<=p1){const u=(t-p0)/(p1-p0);return[c0[0]*(1-u)+c1[0]*u,c0[1]*(1-u)+c1[1]*u,c0[2]*(1-u)+c1[2]*u];}}return stops.at(-1)[1];
+  }
+  function renderHeatmap(normPts,w,h,r=60,intensity=1){
+    const acc=document.createElement('canvas'); acc.width=w; acc.height=h; const ctx=acc.getContext('2d');
+    ctx.globalCompositeOperation='lighter'; r=Math.max(8,r|0);
+    for(const pt of normPts){const x=pt.x*w,y=pt.y*h; const g=ctx.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,`rgba(255,255,255,${0.15*intensity})`); g.addColorStop(1,'rgba(255,255,255,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();}
+    const id=ctx.getImageData(0,0,w,h); const d=id.data; let maxV=0; for(let i=0;i<d.length;i+=4){ if(d[i]>maxV) maxV=d[i]; }
+    const out=document.createElement('canvas'); out.width=w; out.height=h; const ox=out.getContext('2d'); const od=ox.createImageData(w,h); const dd=od.data; const inv=maxV?1/maxV:1;
+    for(let i=0;i<d.length;i+=4){ const v=d[i]*inv; const c=colorLUT(v); dd[i]=c[0]|0; dd[i+1]=c[1]|0; dd[i+2]=c[2]|0; dd[i+3]=Math.round(255*Math.pow(v,0.85)); }
+    ox.putImageData(od,0,0); return out;
+  }
+
+  // Coordenadas
+  function viewportToNorm(x,y){ const rect=images[currentIndex]?._rect:null; if(!rect) return null; if(x<rect.dx||y<rect.dy||x>rect.dx+rect.dw||y>rect.dy+rect.dh) return null; return {x:(x-rect.dx)/rect.dw,y:(y-rect.dy)/rect.dh}; }
+
+  // Cámara y WebGazer
+  async function startCamera(){
+    $('#statusText').textContent='Solicitando cámara...';
+    try{
+      await webgazer.setGazeListener(()=>{}).begin();
+      webgazer.params.showVideoPreview=true; webgazer.params.showFaceOverlay=false; webgazer.params.showFaceFeedbackBox=false;
+      $('#statusText').textContent='Cámara lista';
+    }catch(e){ console.error(e); alert('No se pudo iniciar la cámara. Asegúrate de estar en HTTPS y permitir el acceso.'); $('#statusText').textContent='Error cámara'; }
+  }
+
+  function startSampling(){ const hz=Math.max(5,Math.min(60, Number($('#sampleHz').value)||30)); const period=1000/hz; if(sampleInterval) clearInterval(sampleInterval); sampleInterval=setInterval(async()=>{ const pred=await webgazer.getCurrentPrediction(); if(!pred) return; const norm=viewportToNorm(pred.x,pred.y); if(!norm) return; const t=performance.now()-startTime; const arr=pointsByImage.get(images[currentIndex].id); arr.push({t,x:norm.x,y:norm.y}); $('#sampleCount').textContent=String(arr.length); drawOverlays(); }, period); }
+  function stopSampling(){ if(sampleInterval){ clearInterval(sampleInterval); sampleInterval=null; } }
+
+  // Calibración sencilla
+  async function calibrate(){ const overlay=$('#calibOverlay'); const grid=$('#calibGrid'); grid.innerHTML=''; overlay.style.display='flex'; const clicksPer=5; const dots=[]; for(let i=0;i<9;i++){ const d=document.createElement('div'); d.className='calib-dot'; d.dataset.c='0'; d.onclick=()=>{ const c=+d.dataset.c+1; d.dataset.c=String(c); if(c>=clicksPer){ d.style.background='#22c55e'; d.style.boxShadow='0 0 0 6px rgba(34,197,94,.25),0 0 0 14px rgba(34,197,94,.12)'; } }; dots.push(d); grid.appendChild(d);} await new Promise(res=>{ const chk=setInterval(()=>{ if(dots.every(d=>+d.dataset.c>=clicksPer)){ clearInterval(chk); res(); } }, 500); }); overlay.style.display='none'; $('#statusText').textContent='Calibrado'; }
+
+  // Ejecución
+  async function runStudy(){ if(!images.length){ alert('Sube una imagen.'); return; } if(!webgazer.isReady()){ alert('Primero inicia la cámara.'); return; } pointsByImage.forEach((_,k)=>pointsByImage.set(k,[])); currentIndex=0; drawCurrentImage(); collecting=true; $('#statusText').textContent='Grabando...'; startTime=performance.now(); startSampling(); const trialSec=Math.max(1, Number($('#trialSeconds').value)||6); const tStart=performance.now(); for(let i=0;i<images.length && collecting;i++){ currentIndex=i; drawCurrentImage(); const endAt=performance.now()+trialSec*1000; while(collecting && performance.now()<endAt){ $('#timer').textContent=((performance.now()-tStart)/1000).toFixed(1)+'s'; await sleep(40); } } collecting=false; stopSampling(); $('#statusText').textContent='Finalizado'; drawOverlays(); }
+
+  // Exportes
+  function exportCSV(){ const rows=[["image","t_ms","x_norm","y_norm"]]; for(const it of images){ const arr=pointsByImage.get(it.id)||[]; for(const p of arr){ rows.push([it.name, Math.round(p.t), p.x.toFixed(5), p.y.toFixed(5)]); } } const blob=new Blob([rows.map(r=>r.join(',')).join('\n')],{type:'text/csv;charset=utf-8'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='gaze_data.csv'; a.click(); URL.revokeObjectURL(a.href); }
+  function saveComposite(){ if(currentIndex<0) return alert('No hay imagen activa'); const it=images[currentIndex]; const rect=it._rect; const pts=pointsByImage.get(it.id)||[]; if(!pts.length) return alert('No hay datos'); const hm=renderHeatmap(pts, rect.dw, rect.dh, Number($('#hmRadius').value)||60, Number($('#hmIntensity').value)||1.0); const c=document.createElement('canvas'); c.width=rect.dw; c.height=rect.dh; const cx=c.getContext('2d'); cx.drawImage(it.imgEl,0,0,rect.dw,rect.dh); cx.globalAlpha=.9; cx.drawImage(hm,0,0); c.toBlob(b=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='composite_'+it.name.replace(/[^a-z0-9_\-\.]+/gi,'_'); a.click(); URL.revokeObjectURL(a.href); }); }
+
+  // Eventos UI
+  $('#btnStartCam').onclick=startCamera; $('#btnCalib').onclick=calibrate; $('#btnRun').onclick=runStudy; $('#btnStop').onclick=()=>{collecting=false; stopSampling(); $('#statusText').textContent='Detenido';}; $('#btnExportCSV').onclick=exportCSV; $('#btnSaveComposite').onclick=saveComposite; $('#hmRadius').oninput=e=>{drawOverlays();}; $('#hmIntensity').oninput=e=>{drawOverlays();};
+
+  // Inicio
+  window.addEventListener('load', ()=>{ resize(); console.log('WebGazer Básico listo (v0.3)'); });
+  </script>
+</body>
+</html>
