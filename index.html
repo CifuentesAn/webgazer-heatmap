@@ -68,7 +68,14 @@
       <h1>Panel de control</h1>
       <div class="card">
         <h2>1 · Imágenes del estudio</h2>
-        $1
+        <label>Sube 1 o varias imágenes (JPG/PNG)</label>
+        <input id="fileInput" type="file" accept="image/*" multiple />
+        <div class="muted" style="margin-top:6px">Puedes reordenarlas y borrar las que no uses.</div>
+        <div id="imageList" class="list" style="margin-top:10px"></div>
+        <div class="row" style="margin-top:10px">
+          <button id="btnLoadAssets" class="btn">Cargar imágenes del repo (assets/)</button>
+        </div>
+        <div class="muted" style="margin-top:6px">Opcional: agrega <code>assets/manifest.json</code> con un array de nombres de archivo para precargar estímulos desde GitHub Pages.</div>
         <div class="row" style="margin-top:10px">
           <button id="btnLoadAssets" class="btn">Cargar imágenes del repo (assets/)</button>
         </div>
