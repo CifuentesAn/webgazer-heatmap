@@ -113,10 +113,9 @@
         <div class="row">
           <button id="btnStartCam" class="btn brand">Iniciar cámara</button>
           <button id="btnCalibrate" class="btn">Calibrar</button>
-        </div>
+        $1
         <div class="row" style="margin-top:8px">
-          <button id="btnRun" class="btn ok">Iniciar estudio</button>
-          <button id="btnStop" class="btn warn">Detener</button>
+          <button id="btnDiag" class="btn ghost">Diagnóstico</button>
         </div>
       </div>
       <div class="card">
@@ -213,6 +212,12 @@
   const iCtx = imageCanvas.getContext('2d');
   const pCtx = pointsCanvas.getContext('2d');
   const hCtx = heatCanvas.getContext('2d');
+
+  // Helpers: canvas offscreen con fallback
+  function makeCanvas(w,h){
+    if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w,h);
+    const c = document.createElement('canvas'); c.width=w; c.height=h; return c;
+  }
 
   function resizeCanvases(){
     const rect = stageEl.getBoundingClientRect();
@@ -329,7 +334,7 @@
   // =============================
   function renderHeatmap(normPoints, w, h, radius=60, intensity=1.0){
     // normPoints: {x:[0..1], y:[0..1]}
-    const acc = new OffscreenCanvas(w, h);
+    const acc = makeCanvas(w, h);
     const ctx = acc.getContext('2d');
     ctx.clearRect(0,0,w,h);
     ctx.globalCompositeOperation = 'lighter';
@@ -377,7 +382,7 @@
       const v = data[i]; // R canal (blanco acumulado)
       if (v>maxV) maxV=v;
     }
-    const out = new OffscreenCanvas(w,h);
+    const out = makeCanvas(w,h);
     const octx = out.getContext('2d');
     const outData = octx.createImageData(w,h);
     const od = outData.data;
@@ -419,7 +424,15 @@
     }catch(err){
       console.error('Error cámara:', err);
       const msg = `${err && err.name ? err.name+': ' : ''}${err && err.message ? err.message : 'Error desconocido'}`;
-      alert('No se pudo iniciar la cámara.\n' + msg + '\n\nRevisa:\n1) Abrir por HTTPS (GitHub Pages ya lo es).\n2) Permisos del sitio (botón del candado → Cámara → Permitir).\n3) Ajustes del navegador: Privacidad/Sitios → Cámara (permitir para *github.io*).\n4) Windows: Configuración → Privacidad → Cámara → permitir a apps de escritorio.\n5) Cierra otras apps que usen la cámara y recarga.');
+      alert('No se pudo iniciar la cámara.
+' + msg + '
+
+Revisa:
+1) Abrir por HTTPS (GitHub Pages ya lo es).
+2) Permisos del sitio (botón del candado → Cámara → Permitir).
+3) Ajustes del navegador: Privacidad/Sitios → Cámara (permitir para *github.io*).
+4) Windows: Configuración → Privacidad → Cámara → permitir a apps de escritorio.
+5) Cierra otras apps que usen la cámara y recarga.');
       statusText.textContent = 'Error al iniciar cámara';
     }
   }
@@ -589,6 +602,19 @@
   document.getElementById('btnExportCSV').onclick = exportCSV;
   document.getElementById('btnSaveHeat').onclick = saveHeatmapPNG;
   document.getElementById('btnSaveComposite').onclick = saveCompositePNG;
+  const diagBtn = document.getElementById('btnDiag');
+  if (diagBtn) diagBtn.onclick = async ()=>{
+    try{
+      const perms = navigator.permissions && navigator.permissions.query ? await navigator.permissions.query({name:'camera'}).catch(()=>null) : null;
+      const devices = navigator.mediaDevices && navigator.mediaDevices.enumerateDevices ? await navigator.mediaDevices.enumerateDevices() : [];
+      const cams = devices.filter(d=>d.kind==='videoinput');
+      alert('Diagnóstico:
+- Permiso cámara: ' + (perms? perms.state : 'desconocido') + '
+- Cámaras detectadas: ' + cams.length + (cams.length? ('
+  · '+ cams.map(c=>c.label||'(sin nombre)').join('
+  · ')) : ''));
+    }catch(err){ alert('Diagnóstico falló: '+ (err.message||err)); }
+  };
   document.getElementById('trialSeconds').oninput = e=> params.trialSeconds = Number(e.target.value)||6;
   document.getElementById('hmRadius').oninput = e=> { params.hmRadius = Number(e.target.value)||60; drawOverlays(); };
   document.getElementById('hmIntensity').oninput = e=> { params.hmIntensity = Number(e.target.value)||1.0; drawOverlays(); };
@@ -631,9 +657,23 @@
 
   document.getElementById('btnLoadAssets').onclick = ()=>loadAssetsFromManifest();
 
+  // Errores globales visibles
+  window.addEventListener('error', (e)=>{
+    console.error('JS error:', e.message, e);
+    alert('Error de script: '+ e.message);
+  });
+  window.addEventListener('unhandledrejection', (e)=>{
+    console.error('Promise rejection:', e.reason);
+    alert('Error de promesa: '+ (e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+
   // Arranque
   window.addEventListener('load', ()=>{
+    const APP_VERSION = 'v0.7';
+    console.log('APP READY', APP_VERSION);
     resizeCanvases();
+    const sEl = document.getElementById('statusText');
+    if (sEl) sEl.textContent = 'Listo ('+APP_VERSION+')';
     // Descomenta para autocargar del manifest si existe
     // loadAssetsFromManifest();
   });
