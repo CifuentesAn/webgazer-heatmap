@@ -42,8 +42,6 @@
     .item .actions{display:flex;gap:6px}
     .toggle{display:flex;align-items:center;gap:8px}
     .toggle input{accent-color:var(--brand)}
-
-    /* Escenario */
     .stage-wrap{flex:1;display:flex;gap:12px;padding:16px}
     .stage{flex:1;display:grid;place-items:center;background:#0b0f14;border-left:1px solid #0f151d;position:relative;overflow:hidden}
     .canvas-layer{position:absolute;inset:0}
@@ -51,14 +49,10 @@
     #heatCanvas, #pointsCanvas{position:absolute;inset:0;pointer-events:none}
     .toolbar{position:sticky;top:0;background:linear-gradient(180deg,#0e141b,#0c1016);border-bottom:1px solid #111922;padding:10px 14px;display:flex;gap:10px;align-items:center}
     .spacer{flex:1}
-
-    /* Calibración */
     .calib-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.35);backdrop-filter:saturate(120%) blur(2px)}
     .calib-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:0}
     .calib-dot{width:16px;height:16px;border-radius:50%;background:#1b84ff;box-shadow:0 0 0 6px rgba(24,112,242,.2), 0 0 0 14px rgba(24,112,242,.07);margin:auto;cursor:crosshair}
     .calib-instructions{position:absolute;bottom:16px;left:16px;right:16px;background:rgba(9,12,16,.85);border:1px solid #141b24;border-radius:12px;padding:10px;color:#cbd5e1}
-
-    /* Ocultar los elementos de debug que WebGazer inserta */
     video#webgazerVideoFeed, canvas#webgazerVideoCanvas, canvas#webgazerFaceOverlay, canvas#webgazerFaceFeedbackBox{display:none !important}
   </style>
 </head>
@@ -101,7 +95,6 @@
         </div>
         <div class="row" style="margin-top:8px">
           <label class="toggle"><input id="togglePoints" type="checkbox" checked /> Mostrar puntos</label>
-          <!-- Eliminado: toggle de heatmap en vivo -->
         </div>
       </div>
       <div class="card">
@@ -153,7 +146,6 @@
           <canvas id="imageCanvas" class="canvas-layer"></canvas>
           <canvas id="heatCanvas" class="canvas-layer"></canvas>
           <canvas id="pointsCanvas" class="canvas-layer"></canvas>
-
           <div class="calib-overlay" id="calibOverlay">
             <div class="calib-grid" id="calibGrid"></div>
             <div class="calib-instructions" id="calibText">Haz clic varias veces en cada punto azul (mínimo 5 por punto). Avanza por los 9 puntos.</div>
@@ -163,187 +155,139 @@
     </main>
   </div>
 
-  <!-- WebGazer desde CDN oficial -->
   <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
   <script>
-  // =============================
-  // Versión (para cache-busting)
-  // =============================
-  const APP_VERSION = 'v0.3.1-noRealtime';
-
-  // =============================
-  // Utilidades
-  // =============================
-  const $ = sel => document.querySelector(sel);
-  const $$ = sel => Array.from(document.querySelectorAll(sel));
+  // ===== Versión visible (cache-busting) =====
+  const APP_VERSION = 'v0.3.2-fixCalib';
+  // ===== Utils =====
+  const $ = s => document.querySelector(s);
+  const $$ = s => Array.from(document.querySelectorAll(s));
   const sleep = ms => new Promise(r=>setTimeout(r,ms));
   function downloadBlob(blob, filename){
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
+    a.href = URL.createObjectURL(blob); a.download = filename;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(a.href), 1500);
   }
 
-  // =============================
-  // Estado
-  // =============================
-  let images = []; // {id, name, url, imgEl, w, h}
-  let currentIndex = -1;
-  let collecting = false;
-  let startTime = 0;
-  let sampleInterval = null;
-  const pointsByImage = new Map(); // id -> [{t, x, y}]
+  // ===== Estado =====
+  let images = []; let currentIndex = -1;
+  let collecting = false; let startTime = 0; let sampleInterval = null;
+  const pointsByImage = new Map(); // id -> [{t,x,y}]
+  const params = { trialSeconds:6, hmRadius:60, hmIntensity:1.0, sampleHz:30, showPoints:true };
 
-  // Parámetros
-  const params = {
-    trialSeconds: 6,
-    hmRadius: 60,
-    hmIntensity: 1.0,
-    sampleHz: 30,
-    showPoints: true
-  };
-
-  // Canvas y contexto
-  const imageCanvas = document.getElementById('imageCanvas');
-  const pointsCanvas = document.getElementById('pointsCanvas');
-  const heatCanvas = document.getElementById('heatCanvas');
-  const stageEl = document.getElementById('stage');
-  const iCtx = imageCanvas.getContext('2d');
-  const pCtx = pointsCanvas.getContext('2d');
-  const hCtx = heatCanvas.getContext('2d');
+  // ===== Canvas =====
+  const imageCanvas = $('#imageCanvas'), pointsCanvas = $('#pointsCanvas'), heatCanvas = $('#heatCanvas'), stageEl = $('#stage');
+  const iCtx = imageCanvas.getContext('2d'), pCtx = pointsCanvas.getContext('2d'), hCtx = heatCanvas.getContext('2d');
 
   function resizeCanvases(){
-    const rect = stageEl.getBoundingClientRect();
-    for (const c of [imageCanvas, pointsCanvas, heatCanvas]){
-      c.width = Math.max(320, Math.floor(rect.width));
-      c.height = Math.max(240, Math.floor(rect.height));
-    }
+    const r = stageEl.getBoundingClientRect();
+    [imageCanvas, pointsCanvas, heatCanvas].forEach(c=>{ c.width=Math.max(320, r.width|0); c.height=Math.max(240, r.height|0); });
     if (currentIndex >= 0) drawCurrentImage();
     drawOverlays();
   }
   window.addEventListener('resize', resizeCanvases);
 
-  // =============================
-  // Carga y lista de imágenes
-  // =============================
-  document.getElementById('fileInput').addEventListener('change', async (e)=>{
-    const files = Array.from(e.target.files || []);
-    for (const f of files){
+  // ===== Carga imágenes =====
+  $('#fileInput').addEventListener('change', async e=>{
+    for (const f of Array.from(e.target.files||[])){
       if (!f.type.startsWith('image/')) continue;
-      const url = URL.createObjectURL(f);
-      const img = new Image();
+      const url = URL.createObjectURL(f); const img = new Image();
       await new Promise(res=>{ img.onload=res; img.src=url; });
       const item = { id: crypto.randomUUID(), name: f.name, url, imgEl: img, w: img.naturalWidth, h: img.naturalHeight };
-      images.push(item);
-      pointsByImage.set(item.id, []);
+      images.push(item); pointsByImage.set(item.id, []);
     }
     renderImageList();
     if (currentIndex === -1 && images.length>0){ currentIndex = 0; drawCurrentImage(); }
   });
 
   function renderImageList(){
-    const list = document.getElementById('imageList');
-    list.innerHTML = '';
+    const list = $('#imageList'); list.innerHTML='';
     images.forEach((it, idx)=>{
-      const el = document.createElement('div');
-      el.className = 'item';
+      const el = document.createElement('div'); el.className='item';
       el.innerHTML = `
         <img src="${it.url}" alt="${it.name}">
-        <div class="meta">
-          <div class="name">${it.name}</div>
-          <div class="muted">${it.w}×${it.h}px</div>
-        </div>
+        <div class="meta"><div class="name">${it.name}</div><div class="muted">${it.w}×${it.h}px</div></div>
         <div class="actions">
           <button class="btn ghost" title="Arriba">↑</button>
           <button class="btn ghost" title="Abajo">↓</button>
           <button class="btn ghost" title="Ver">👁</button>
           <button class="btn ghost" title="Borrar">✕</button>
         </div>`;
-      const [btnUp, btnDown, btnView, btnDel] = el.querySelectorAll('button');
-      btnUp.onclick = ()=>{ if (idx>0){ const t = images[idx-1]; images[idx-1]=images[idx]; images[idx]=t; renderImageList(); }};
-      btnDown.onclick=()=>{ if (idx<images.length-1){ const t = images[idx+1]; images[idx+1]=images[idx]; images[idx]=t; renderImageList(); }};
-      btnView.onclick=()=>{ currentIndex = idx; drawCurrentImage(); };
-      btnDel.onclick = ()=>{ if(confirm('¿Eliminar esta imagen?')){ URL.revokeObjectURL(it.url); images.splice(idx,1); renderImageList(); if(currentIndex>=images.length) currentIndex=images.length-1; drawCurrentImage(); }};
+      const [btnUp,btnDown,btnView,btnDel] = el.querySelectorAll('button');
+      btnUp.onclick = ()=>{ if(idx>0){ [images[idx-1],images[idx]]=[images[idx],images[idx-1]]; renderImageList(); } };
+      btnDown.onclick = ()=>{ if(idx<images.length-1){ [images[idx+1],images[idx]]=[images[idx],images[idx+1]]; renderImageList(); } };
+      btnView.onclick = ()=>{ currentIndex = idx; drawCurrentImage(); };
+      btnDel.onclick = ()=>{ if(confirm('¿Eliminar esta imagen?')){ URL.revokeObjectURL(it.url); images.splice(idx,1); renderImageList(); if(currentIndex>=images.length) currentIndex=images.length-1; drawCurrentImage(); } };
       list.appendChild(el);
     });
   }
 
-  // =============================
-  // Dibujo de imagen y overlays (sin heatmap en vivo)
-  // =============================
+  // ===== Dibujo (sin heatmap vivo) =====
   function drawCurrentImage(){
     iCtx.clearRect(0,0,imageCanvas.width,imageCanvas.height);
     if (currentIndex<0 || !images[currentIndex]) return;
     const img = images[currentIndex].imgEl;
-    const stageW = imageCanvas.width, stageH = imageCanvas.height;
-    const scale = Math.min(stageW/img.naturalWidth, stageH/img.naturalHeight);
-    const drawW = img.naturalWidth * scale;
-    const drawH = img.naturalHeight * scale;
-    const dx = (stageW - drawW)/2;
-    const dy = (stageH - drawH)/2;
-    iCtx.imageSmoothingQuality = 'high';
-    iCtx.drawImage(img, dx, dy, drawW, drawH);
-    images[currentIndex]._drawRect = {dx,dy,drawW,drawH, scale};
-    document.getElementById('imgIndex').textContent = `${currentIndex+1}/${images.length}`;
+    const W=imageCanvas.width, H=imageCanvas.height;
+    const s = Math.min(W/img.naturalWidth, H/img.naturalHeight);
+    const w = img.naturalWidth*s, h=img.naturalHeight*s;
+    const dx=(W-w)/2, dy=(H-h)/2;
+    iCtx.imageSmoothingQuality='high'; iCtx.drawImage(img, dx,dy,w,h);
+    images[currentIndex]._drawRect={dx,dy,drawW:w,drawH:h,scale:s};
+    $('#imgIndex').textContent=`${currentIndex+1}/${images.length}`;
   }
 
   function drawOverlays(){
     pCtx.clearRect(0,0,pointsCanvas.width,pointsCanvas.height);
-    hCtx.clearRect(0,0,heatCanvas.width,heatCanvas.height); // no dibujamos heat en tiempo real
-
+    hCtx.clearRect(0,0,heatCanvas.width,heatCanvas.height);
     if (currentIndex<0 || !images[currentIndex]) return;
-    const img = images[currentIndex];
-    const rect = img._drawRect; if (!rect) return;
-
-    if (document.getElementById('togglePoints').checked){
-      const pts = pointsByImage.get(img.id) || [];
-      pCtx.save();
-      pCtx.fillStyle = 'rgba(255,255,255,.9)';
+    const img = images[currentIndex], rect = img._drawRect; if (!rect) return;
+    if ($('#togglePoints').checked){
+      const pts = pointsByImage.get(img.id)||[];
+      pCtx.save(); pCtx.fillStyle='rgba(255,255,255,.9)';
       for (const pt of pts){
-        const sx = rect.dx + pt.x*rect.drawW;
-        const sy = rect.dy + pt.y*rect.drawH;
-        pCtx.globalAlpha = .7;
-        pCtx.beginPath(); pCtx.arc(sx,sy,2.2,0,Math.PI*2); pCtx.fill();
+        const sx=rect.dx+pt.x*rect.drawW, sy=rect.dy+pt.y*rect.drawH;
+        pCtx.globalAlpha=.7; pCtx.beginPath(); pCtx.arc(sx,sy,2.2,0,Math.PI*2); pCtx.fill();
       }
       pCtx.restore();
     }
   }
 
-  // =============================
-  // Heatmap (sólo al exportar)
-  // =============================
+  // ===== Heatmap (se calcula SOLO al exportar) =====
   function renderHeatmap(normPoints, w, h, radius=60, intensity=1.0){
-    const acc = new OffscreenCanvas(w, h);
-    const ctx = acc.getContext('2d');
-    ctx.clearRect(0,0,w,h);
-    ctx.globalCompositeOperation = 'lighter';
+    const acc = new OffscreenCanvas(w,h); const ctx = acc.getContext('2d');
+    ctx.clearRect(0,0,w,h); ctx.globalCompositeOperation='lighter';
     const r = Math.max(8, radius|0);
     for (const pt of normPoints){
-      const x = pt.x*w, y = pt.y*h;
-      const g = ctx.createRadialGradient(x,y,0,x,y,r);
+      const x=pt.x*w, y=pt.y*h;
+      const g=ctx.createRadialGradient(x,y,0,x,y,r);
       g.addColorStop(0, `rgba(255,255,255,${0.15*intensity})`);
       g.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
     }
-    const imgData = ctx.getImageData(0,0,w,h);
-    const data = imgData.data;
+    const imgData = ctx.getImageData(0,0,w,h), data = imgData.data;
 
-    // Paleta frío→caliente: azul→cian→verde→amarillo→naranja→rojo
-    function colorLUT(t){ // t: 0..1
+    // Percentil 98 para evitar "todo rojo" por saturación
+    const hist = new Uint32Array(256);
+    for (let i=0;i<data.length;i+=4){ const v=data[i]; if (v>0) hist[v]++; }
+    const total = hist.reduce((a,b)=>a+b,0);
+    let target = Math.max(1, Math.round(total*0.98)), cum=0, p98=255;
+    for (let v=1; v<256; v++){ cum+=hist[v]; if (cum>=target){ p98=v; break; } }
+
+    function colorLUT(t){
       const stops = [
-        [0.00,[0,32,128]],   // azul profundo
-        [0.20,[0,140,255]],  // cian
-        [0.40,[0,200,120]],  // verde
-        [0.60,[255,230,0]],  // amarillo
-        [0.80,[255,140,0]],  // naranja
-        [1.00,[230,30,0]]    // rojo
+        [0.00,[0,32,128]],  // azul
+        [0.20,[0,140,255]], // cian
+        [0.40,[0,200,120]], // verde
+        [0.60,[255,230,0]], // amarillo
+        [0.80,[255,140,0]], // naranja
+        [1.00,[230,30,0]]   // rojo
       ];
       for (let i=0;i<stops.length-1;i++){
         const [p0,c0]=stops[i], [p1,c1]=stops[i+1];
         if (t>=p0 && t<=p1){
-          const u=(t-p0)/(p1-p0); return [
+          const u=(t-p0)/(p1-p0);
+          return [
             Math.round(c0[0]*(1-u)+c1[0]*u),
             Math.round(c0[1]*(1-u)+c1[1]*u),
             Math.round(c0[2]*(1-u)+c1[2]*u)
@@ -353,252 +297,184 @@
       return stops[stops.length-1][1];
     }
 
-    // Normalización y colorización
-    let maxV = 0;
+    const out = new OffscreenCanvas(w,h), octx = out.getContext('2d');
+    const outData = octx.createImageData(w,h), od=outData.data;
+    const inv = 1/Math.max(1,p98); const gamma=0.85;
     for (let i=0;i<data.length;i+=4){
-      const v = data[i]; if (v>maxV) maxV=v;
-    }
-    const out = new OffscreenCanvas(w,h);
-    const octx = out.getContext('2d');
-    const outData = octx.createImageData(w,h);
-    const od = outData.data;
-    const invMax = maxV>0 ? (1/maxV) : 1;
-    for (let i=0;i<data.length;i+=4){
-      const v = data[i]*invMax; // 0..1
+      let v = Math.min(1, data[i]*inv);           // clamp por p98
+      v = Math.pow(v, gamma);                      // más rango en “fríos”
       const [r,g,b] = colorLUT(v);
-      od[i] = r; od[i+1]=g; od[i+2]=b; od[i+3] = Math.round(255 * Math.pow(v, 0.85)); // leve refuerzo en bajas intensidades
+      od[i]=r; od[i+1]=g; od[i+2]=b; od[i+3]=Math.round(255*v);
     }
-    octx.putImageData(outData,0,0);
-    return out;
+    octx.putImageData(outData,0,0); return out;
   }
 
-  // =============================
-  // WebGazer: inicio y muestreo (cámara intacta)
-  // =============================
-  const statusText = document.getElementById('statusText');
+  // ===== WebGazer: cámara (intacto) y muestreo con suavizado =====
+  const statusText = $('#statusText');
   async function startCamera(){
-    statusText.textContent = 'Solicitando cámara...';
+    statusText.textContent='Solicitando cámara...';
     try{
       await webgazer.setGazeListener(()=>{}).begin();
-      webgazer.params.showVideoPreview = true; // oculto por CSS
-      webgazer.params.showFaceOverlay = false;
-      webgazer.params.showFaceFeedbackBox = false;
-      statusText.textContent = 'Cámara lista';
+      webgazer.params.showVideoPreview=true; webgazer.params.showFaceOverlay=false; webgazer.params.showFaceFeedbackBox=false;
+      statusText.textContent=`Cámara lista (${APP_VERSION})`;
     }catch(err){
       console.error(err);
       alert('No se pudo iniciar la cámara. Abre la página por HTTPS o localhost y acepta permisos.');
-      statusText.textContent = 'Error al iniciar cámara';
+      statusText.textContent='Error al iniciar cámara';
     }
   }
 
   function viewportToImageNorm(x,y){
-    const rect = images[currentIndex]?._drawRect;
-    if (!rect) return null;
+    const rect = images[currentIndex]?._drawRect; if (!rect) return null;
     if (x<rect.dx || y<rect.dy || x>rect.dx+rect.drawW || y>rect.dy+rect.drawH) return null;
-    const nx = (x - rect.dx)/rect.drawW;
-    const ny = (y - rect.dy)/rect.drawH;
-    return {x:nx, y:ny};
+    return { x:(x-rect.dx)/rect.drawW, y:(y-rect.dy)/rect.drawH };
   }
 
+  // Suavizado EMA para reducir jitter (sin retraso pesado)
+  let ema = null; const ALPHA = 0.35;
   function startSampling(){
-    const hz = Math.max(5, Math.min(60, Number(document.getElementById('sampleHz').value)||30));
+    const hz = Math.max(5, Math.min(60, Number($('#sampleHz').value)||30));
     const period = 1000/hz;
     if (sampleInterval) clearInterval(sampleInterval);
     sampleInterval = setInterval(async ()=>{
-      const pred = await webgazer.getCurrentPrediction();
-      if (!pred) return;
-      const {x,y} = pred;
-      const norm = viewportToImageNorm(x,y);
-      if (!norm) return;
+      const pred = await webgazer.getCurrentPrediction(); if (!pred) return;
+      ema = ema ? { x: ALPHA*pred.x + (1-ALPHA)*ema.x, y: ALPHA*pred.y + (1-ALPHA)*ema.y } : { x: pred.x, y: pred.y };
+      const norm = viewportToImageNorm(ema.x, ema.y); if (!norm) return;
       const t = performance.now() - startTime;
-      const arr = pointsByImage.get(images[currentIndex].id);
-      arr.push({t, x:norm.x, y:norm.y});
-      document.getElementById('sampleCount').textContent = String(arr.length);
-      if (document.getElementById('togglePoints').checked){
-        drawOverlays(); // sólo puntos; no heatmap en vivo
-      }
+      const arr = pointsByImage.get(images[currentIndex].id); arr.push({t, x:norm.x, y:norm.y});
+      $('#sampleCount').textContent=String(arr.length);
+      if ($('#togglePoints').checked) drawOverlays();
     }, period);
   }
+  function stopSampling(){ if (sampleInterval){ clearInterval(sampleInterval); sampleInterval=null; } }
 
-  function stopSampling(){
-    if (sampleInterval){ clearInterval(sampleInterval); sampleInterval=null; }
-  }
-
-  // =============================
-  // Calibración simple (9 puntos con clics)
-  // =============================
-  const calibOverlay = document.getElementById('calibOverlay');
-  const calibGrid = document.getElementById('calibGrid');
+  // ===== Calibración: ahora SÍ entrena =====
+  const calibOverlay = $('#calibOverlay'), calibGrid = $('#calibGrid');
   async function runCalibration(){
-    if (!images.length) { alert('Primero sube imágenes.'); return; }
-    calibOverlay.style.display = 'flex';
-    calibGrid.innerHTML = '';
-    const clicksNeededPerDot = 5;
+    if (!images.length){ alert('Primero sube imágenes.'); return; }
+    // Limpia datos previos y resetea EMA
+    try{ webgazer.clearData(); }catch{}
+    ema = null;
+
+    calibOverlay.style.display='flex';
+    calibGrid.innerHTML='';
+
+    const clicksNeededPerDot = 6;
     const dots = [];
     for (let i=0;i<9;i++){
-      const d = document.createElement('div'); d.className='calib-dot'; d.dataset.count='0';
-      d.title = 'Haz clic varias veces aquí';
+      const d=document.createElement('div'); d.className='calib-dot'; d.dataset.count='0'; d.title='Haz clic varias veces aquí';
       d.addEventListener('click', ()=>{
         const c = parseInt(d.dataset.count,10)+1; d.dataset.count=String(c);
+        // Centro del punto en coordenadas de viewport:
+        const r=d.getBoundingClientRect();
+        const sx=r.left + r.width/2, sy=r.top + r.height/2;
+        // Entrenar WebGazer con esta “verdad de pantalla”:
+        try{ webgazer.recordScreenPosition(sx, sy, 'click'); }catch(e){ console.warn('recordScreenPosition falló', e); }
         d.style.background = c>=clicksNeededPerDot? '#22c55e' : '#1b84ff';
         d.style.boxShadow = c>=clicksNeededPerDot? '0 0 0 6px rgba(34,197,94,.25), 0 0 0 14px rgba(34,197,94,.12)' : '0 0 0 6px rgba(24,112,242,.2), 0 0 0 14px rgba(24,112,242,.07)';
       });
       dots.push(d); calibGrid.appendChild(d);
     }
     await new Promise(resolve=>{
-      const checker = setInterval(()=>{
-        const allGood = dots.every(d=> parseInt(d.dataset.count,10) >= clicksNeededPerDot );
-        if (allGood){ clearInterval(checker); resolve(); }
-      }, 500);
+      const t=setInterval(()=>{
+        const ok=dots.every(d=> +d.dataset.count >= clicksNeededPerDot);
+        if (ok){ clearInterval(t); resolve(); }
+      }, 300);
     });
     calibOverlay.style.display='none';
-    statusText.textContent = 'Calibrado';
+    statusText.textContent='Calibrado';
   }
 
-  // =============================
-  // Ejecución del estudio
-  // =============================
+  // ===== Estudio =====
   async function runStudy(){
     if (!images.length){ alert('Sube al menos una imagen.'); return; }
     if (!webgazer.isReady()){ alert('Primero inicia la cámara.'); return; }
     for (const it of images) pointsByImage.set(it.id, []);
-    currentIndex = 0; drawCurrentImage();
-    const trialSecs = Math.max(1, Number(document.getElementById('trialSeconds').value)||6);
-    collecting = true;
-    statusText.textContent = 'Grabando...';
+    currentIndex=0; drawCurrentImage();
+    const trialSecs = Math.max(1, Number($('#trialSeconds').value)||6);
+    collecting=true; statusText.textContent='Grabando...';
+    startTime=performance.now(); startSampling();
+    const timerEl=$('#timer'), tStart=performance.now();
 
-    startTime = performance.now();
-    startSampling();
-
-    const timerEl = document.getElementById('timer');
-    const tStartGlobal = performance.now();
-
-    for (let i=0; i<images.length && collecting; i++){
-      currentIndex = i; drawCurrentImage();
-      const t0 = performance.now();
-      const endAt = t0 + trialSecs*1000;
-      while (collecting && performance.now() < endAt){
-        const elapsed = (performance.now()-tStartGlobal)/1000;
-        timerEl.textContent = elapsed.toFixed(1)+'s';
-        drawOverlays();
-        await sleep(50);
+    for (let i=0;i<images.length && collecting;i++){
+      currentIndex=i; drawCurrentImage();
+      const endAt=performance.now()+trialSecs*1000;
+      while (collecting && performance.now()<endAt){
+        const elapsed=(performance.now()-tStart)/1000; timerEl.textContent=elapsed.toFixed(1)+'s';
+        drawOverlays(); await sleep(50);
       }
     }
-
-    collecting = false; stopSampling();
-    statusText.textContent = 'Finalizado';
-    drawOverlays();
+    collecting=false; stopSampling(); statusText.textContent='Finalizado'; drawOverlays();
   }
-
   function stopStudy(){ collecting=false; stopSampling(); statusText.textContent='Detenido'; }
 
-  // =============================
-  // Exportes (aquí sí generamos heatmap)
-  // =============================
+  // ===== Exportes (aquí se genera el heatmap) =====
   function exportCSV(){
-    const rows = [['image','t_ms','x_norm','y_norm']];
+    const rows=[['image','t_ms','x_norm','y_norm']];
     for (const it of images){
-      const arr = pointsByImage.get(it.id)||[];
-      for (const p of arr){ rows.push([it.name, Math.round(p.t), p.x.toFixed(5), p.y.toFixed(5)]); }
+      const arr=pointsByImage.get(it.id)||[];
+      for (const p of arr) rows.push([it.name, Math.round(p.t), p.x.toFixed(5), p.y.toFixed(5)]);
     }
     const csv = rows.map(r=>r.join(',')).join('\n');
-    const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
-    downloadBlob(blob, 'gaze_data.csv');
+    downloadBlob(new Blob([csv],{type:'text/csv;charset=utf-8'}),'gaze_data.csv');
   }
-
   function saveHeatmapPNG(){
     if (currentIndex<0){ alert('No hay imagen activa.'); return; }
-    const img = images[currentIndex];
-    const rect = img._drawRect; if (!rect) return;
-    const pts = pointsByImage.get(img.id)||[];
-    if (!pts.length){ alert('No hay datos para esta imagen.'); return; }
-    const hm = renderHeatmap(pts, rect.drawW, rect.drawH, params.hmRadius, params.hmIntensity);
-    // Volcar a canvas normal para exportar
-    const c = document.createElement('canvas'); c.width = rect.drawW; c.height = rect.drawH;
-    const cx = c.getContext('2d');
-    cx.drawImage(hm,0,0);
-    c.toBlob(blob=> downloadBlob(blob, `heatmap_${sanitizeName(img.name)}.png`) );
+    const img=images[currentIndex], rect=img._drawRect; if (!rect) return;
+    const pts=pointsByImage.get(img.id)||[]; if (!pts.length){ alert('No hay datos para esta imagen.'); return; }
+    const hm=renderHeatmap(pts, rect.drawW, rect.drawH, params.hmRadius, params.hmIntensity);
+    const c=document.createElement('canvas'); c.width=rect.drawW; c.height=rect.drawH; const cx=c.getContext('2d'); cx.drawImage(hm,0,0);
+    c.toBlob(b=>downloadBlob(b,`heatmap_${sanitizeName(img.name)}.png`));
   }
-
   function saveCompositePNG(){
     if (currentIndex<0){ alert('No hay imagen activa.'); return; }
-    const img = images[currentIndex];
-    const rect = img._drawRect; if (!rect) return;
-    const pts = pointsByImage.get(img.id)||[];
-    if (!pts.length){ alert('No hay datos para esta imagen.'); return; }
-    const hm = renderHeatmap(pts, rect.drawW, rect.drawH, params.hmRadius, params.hmIntensity);
-    const c = document.createElement('canvas'); c.width = rect.drawW; c.height = rect.drawH;
-    const cx = c.getContext('2d');
-    cx.drawImage(images[currentIndex].imgEl, 0,0, rect.drawW, rect.drawH);
-    cx.globalAlpha = .85; cx.drawImage(hm,0,0);
-    c.toBlob(blob=> downloadBlob(blob, `composite_${sanitizeName(img.name)}.png`) );
+    const img=images[currentIndex], rect=img._drawRect; if (!rect) return;
+    const pts=pointsByImage.get(img.id)||[]; if (!pts.length){ alert('No hay datos para esta imagen.'); return; }
+    const hm=renderHeatmap(pts, rect.drawW, rect.drawH, params.hmRadius, params.hmIntensity);
+    const c=document.createElement('canvas'); c.width=rect.drawW; c.height=rect.drawH; const cx=c.getContext('2d');
+    cx.drawImage(images[currentIndex].imgEl,0,0,rect.drawW,rect.drawH); cx.globalAlpha=.85; cx.drawImage(hm,0,0);
+    c.toBlob(b=>downloadBlob(b,`composite_${sanitizeName(img.name)}.png`));
   }
-
   function sanitizeName(n){ return n.replace(/[^a-z0-9_\-\.]+/gi,'_'); }
 
-  // =============================
-  // Cargar assets desde manifest (opcional)
-  // =============================
+  // ===== Assets del repo (opcional) =====
   async function loadAssetsFromManifest(){
     try{
-      const resp = await fetch('assets/manifest.json', {cache:'no-store'});
-      if(!resp.ok) throw new Error('No manifest');
-      const names = await resp.json();
-      if(!Array.isArray(names)) throw new Error('Manifest no es un array');
+      const resp=await fetch('assets/manifest.json',{cache:'no-store'}); if(!resp.ok) throw new Error('No manifest');
+      const names=await resp.json(); if(!Array.isArray(names)) throw new Error('Manifest no es un array');
       for (const name of names){
-        const url = `assets/${name}`;
-        const img = new Image();
+        const url=`assets/${name}`; const img=new Image();
         await new Promise(res=>{ img.onload=res; img.src=url; });
-        const item = { id: crypto.randomUUID(), name, url, imgEl: img, w: img.naturalWidth, h: img.naturalHeight };
-        images.push(item);
-        pointsByImage.set(item.id, []);
+        const item={ id:crypto.randomUUID(), name, url, imgEl:img, w:img.naturalWidth, h:img.naturalHeight };
+        images.push(item); pointsByImage.set(item.id,[]);
       }
-      renderImageList();
-      if (currentIndex === -1 && images.length>0){ currentIndex = 0; drawCurrentImage(); }
-      statusText.textContent = `Cargadas ${names.length} imágenes desde assets/`;
-    }catch(err){
-      console.warn('Manifest no encontrado o inválido:', err);
-    }
+      renderImageList(); if (currentIndex===-1 && images.length>0){ currentIndex=0; drawCurrentImage(); }
+      $('#statusText').textContent=`Cargadas ${names.length} imágenes desde assets/`;
+    }catch(err){ console.warn('Manifest no encontrado o inválido:', err); }
   }
 
-  // =============================
-  // Eventos UI
-  // =============================
-  document.getElementById('btnStartCam').onclick = startCamera;
-  document.getElementById('btnCalibrate').onclick = ()=>{
-    buildCalibrationGrid(); runCalibration();
-  };
-  document.getElementById('btnRun').onclick = runStudy;
-  document.getElementById('btnStop').onclick = stopStudy;
-  document.getElementById('btnExportCSV').onclick = exportCSV;
-  document.getElementById('btnSaveHeat').onclick = saveHeatmapPNG;
-  document.getElementById('btnSaveComposite').onclick = saveCompositePNG;
-  document.getElementById('trialSeconds').oninput = e=> params.trialSeconds = Number(e.target.value)||6;
-  document.getElementById('hmRadius').oninput = e=> { params.hmRadius = Number(e.target.value)||60; /* sin redraw de heat en vivo */ };
-  document.getElementById('hmIntensity').oninput = e=> { params.hmIntensity = Number(e.target.value)||1.0; /* sin redraw de heat en vivo */ };
-  document.getElementById('sampleHz').oninput = e=> params.sampleHz = Number(e.target.value)||30;
-  document.getElementById('togglePoints').onchange = drawOverlays;
-  document.getElementById('btnLoadAssets').onclick = ()=>loadAssetsFromManifest();
+  // ===== Eventos UI =====
+  $('#btnStartCam').onclick=startCamera;
+  $('#btnCalibrate').onclick=()=>{ buildCalibrationGrid(); runCalibration(); };
+  $('#btnRun').onclick=runStudy; $('#btnStop').onclick=stopStudy;
+  $('#btnExportCSV').onclick=exportCSV; $('#btnSaveHeat').onclick=saveHeatmapPNG; $('#btnSaveComposite').onclick=saveCompositePNG;
+  $('#trialSeconds').oninput=e=>params.trialSeconds=Number(e.target.value)||6;
+  $('#hmRadius').oninput=e=>params.hmRadius=Number(e.target.value)||60;
+  $('#hmIntensity').oninput=e=>params.hmIntensity=Number(e.target.value)||1.0;
+  $('#sampleHz').oninput=e=>params.sampleHz=Number(e.target.value)||30;
+  $('#togglePoints').onchange=drawOverlays;
+  $('#btnLoadAssets').onclick=()=>loadAssetsFromManifest();
 
   function buildCalibrationGrid(){
-    const grid = document.getElementById('calibGrid');
-    grid.innerHTML = '';
-    for (let r=0;r<3;r++){
-      for (let c=0;c<3;c++){
-        const dot = document.createElement('div'); dot.className='calib-dot'; grid.appendChild(dot);
-      }
-    }
+    const grid=$('#calibGrid'); grid.innerHTML='';
+    for(let r=0;r<3;r++){ for(let c=0;c<3;c++){ const dot=document.createElement('div'); dot.className='calib-dot'; grid.appendChild(dot);} }
   }
 
-  // =============================
-  // Arranque
-  // =============================
+  // ===== Arranque =====
   window.addEventListener('load', ()=>{
     resizeCanvases();
-    const st = document.getElementById('statusText');
-    if (st) st.textContent = `Listo (${APP_VERSION})`;
-    // Si quieres precargar automáticamente: descomenta
-    // loadAssetsFromManifest();
+    const st=$('#statusText'); if (st) st.textContent=`Listo (${APP_VERSION})`;
+    // loadAssetsFromManifest(); // si quieres precargar automáticamente
   });
   </script>
 </body>
