@@ -58,14 +58,12 @@
   }
   .hide-cursor{ cursor: none; }
 
-  .calib-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.35);z-index:5}
-.calib-grid{
-  position:absolute; inset:0;   /* Ahora posicionamos puntos con left/top */
-}
+.calib-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.35);z-index:5}
+.calib-grid{ position:absolute; inset:0; } /* colocaremos puntos con left/top % */
 .calib-dot{
   position:absolute;
   width:16px; height:16px; border-radius:50%;
-  transform:translate(-50%,-50%);    /* centra el círculo en su (x,y) */
+  transform:translate(-50%,-50%);
   background:#1b84ff;
   box-shadow:0 0 0 6px rgba(24,112,242,.2), 0 0 0 14px rgba(24,112,242,.07);
   margin:0; cursor:crosshair;
@@ -385,10 +383,10 @@ const calibOverlay = $('#calibOverlay'), calibGrid = $('#calibGrid');
 function buildCalibrationGrid(){
   calibGrid.innerHTML = '';
 
-  const N = 4;             // 4 x 4 = 16 puntos
-  const EDGE_PAD = 0.04;   // 4% de margen a cada lado (ajústalo 0.02–0.06 según tu cámara)
+  const N = 5;            // 5 x 5 = 25 puntos
+  const EDGE_PAD = 0.05;  // 5% de margen relativo al borde
 
-  // Coordenadas normalizadas (0..1) separadas uniformemente con margen EDGE_PAD
+  // Coordenadas normalizadas (0..1) con margen EDGE_PAD
   const xs = Array.from({length: N}, (_, i) =>
     EDGE_PAD + i * ((1 - 2*EDGE_PAD) / (N - 1)));
   const ys = Array.from({length: N}, (_, j) =>
@@ -412,7 +410,7 @@ async function runCalibration(){
   calibOverlay.style.display='flex';
   buildCalibrationGrid();
   const dots = Array.from(calibGrid.children);
-  const need=6;
+  const need=5;
   dots.forEach(d=>{
     d.dataset.count='0';
     d.onclick=()=>{
