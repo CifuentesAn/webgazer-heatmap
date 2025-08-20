@@ -43,16 +43,22 @@
   .toolbar{position:sticky;top:0;background:linear-gradient(180deg,#0e141b,#0c1016);border-bottom:1px solid #111922;padding:10px 14px;display:flex;gap:10px;align-items:center}
   .spacer{flex:1}
 
-  /* Botón de pantalla completa */
+  /* Botón pantalla completa */
   .fs-btn{
-    position:absolute; top:10px; right:10px; z-index:5;
+    position:absolute; top:10px; right:10px; z-index:6;
     background:rgba(0,0,0,.45); border:1px solid #2a3340; color:#e9eef5;
     border-radius:10px; padding:6px 10px; cursor:pointer; font-weight:600;
     backdrop-filter: blur(2px);
   }
   .fs-btn:hover{ background:rgba(0,0,0,.6); }
 
-  .calib-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.35)}
+  /* Bloqueador de ratón durante estudio */
+  .mouse-blocker{
+    position:absolute; inset:0; z-index:7; background:transparent;
+  }
+  .hide-cursor{ cursor: none; }
+
+  .calib-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.35);z-index:5}
   .calib-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr)}
   .calib-dot{width:16px;height:16px;border-radius:50%;background:#1b84ff;box-shadow:0 0 0 6px rgba(24,112,242,.2),0 0 0 14px rgba(24,112,242,.07);margin:auto;cursor:crosshair}
   video#webgazerVideoFeed,canvas#webgazerVideoCanvas,canvas#webgazerFaceOverlay,canvas#webgazerFaceFeedbackBox{display:none !important}
@@ -133,6 +139,9 @@
         <canvas id="heatCanvas" class="canvas-layer"></canvas>
         <canvas id="pointsCanvas" class="canvas-layer"></canvas>
 
+        <!-- Bloqueador de ratón (activo sólo durante el estudio) -->
+        <div id="mouseBlocker" class="mouse-blocker" hidden></div>
+
         <!-- Botón pantalla completa -->
         <button id="btnFullscreen" class="fs-btn" title="Pantalla completa">⛶</button>
 
@@ -146,7 +155,7 @@
 
 <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
 <script>
-/* ===== utilidades ===== */
+/* ===== util ===== */
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
@@ -155,7 +164,7 @@ function num(v, d=0){ const n=parseFloat(String(v).replace(',','.')); return Num
 
 /* ===== estado ===== */
 let images=[], currentIndex=-1, collecting=false, sampleInterval=null, startTime=0;
-const pointsByImage = new Map(); // id -> [{t,x,y}]
+const pointsByImage = new Map();
 const params = { trialSeconds:6, hmRadius:60, hmIntensity:1.0, sampleHz:30 };
 
 /* ===== canvas ===== */
@@ -225,7 +234,7 @@ function drawOverlays(){
   pCtx.restore();
 }
 
-/* ===== HEATMAP KDE (malla + blur + percentiles) ===== */
+/* ===== heatmap KDE ===== */
 function colorLUT(t){
   const stops = [
     [0.00,[0,32,128]],[0.20,[0,140,255]],[0.40,[0,200,120]],[0.60,[255,230,0]],[0.80,[255,140,0]],[1.00,[230,30,0]]
@@ -318,6 +327,8 @@ async function startCamera(){
     webgazer.params.showFaceOverlay = false;
     webgazer.params.showFaceFeedbackBox = false;
     try{ webgazer.showPredictionPoints(false); }catch{}
+    // Clave: que WebGazer no guarde puntos de ratón fuera de la calibración
+    try{ webgazer.removeMouseEventListeners?.(); }catch{}
     statusText.textContent='Cámara lista';
   }catch(e){
     console.error(e);
@@ -350,6 +361,16 @@ function startSampling(){
 }
 function stopSampling(){ if(sampleInterval){ clearInterval(sampleInterval); sampleInterval=null; } }
 
+/* ===== bloqueo de ratón ===== */
+const mouseBlocker = $('#mouseBlocker');
+['mousemove','mousedown','mouseup','click','dblclick','pointerdown','pointerup','contextmenu','wheel']
+  .forEach(ev => mouseBlocker.addEventListener(ev, e => { e.stopPropagation(); e.preventDefault(); }, true));
+function setMouseBlocked(on){
+  mouseBlocker.hidden = !on;
+  if(on){ stageEl.classList.add('hide-cursor'); }
+  else { stageEl.classList.remove('hide-cursor'); }
+}
+
 /* ===== calibración ===== */
 const calibOverlay = $('#calibOverlay'), calibGrid = $('#calibGrid');
 function buildCalibrationGrid(){ calibGrid.innerHTML=''; for(let i=0;i<9;i++){ const d=document.createElement('div'); d.className='calib-dot'; calibGrid.appendChild(d); } }
@@ -357,6 +378,7 @@ async function runCalibration(){
   if(!images.length){ alert('Primero sube imágenes.'); return; }
   try{ webgazer.clearData(); }catch{}
   ema=null;
+  setMouseBlocked(false); // permitir clics en los puntos
   calibOverlay.style.display='flex';
   buildCalibrationGrid();
   const dots = Array.from(calibGrid.children);
@@ -385,7 +407,13 @@ async function runStudy(){
   currentIndex=0; drawCurrentImage();
   const trial = Math.max(1, num($('#trialSeconds').value,6));
   collecting=true; statusText.textContent='Grabando...';
-  startTime=performance.now(); startSampling();
+  startTime=performance.now();
+
+  // Desactivar cualquier escucha de ratón y bloquearlo visualmente
+  try{ webgazer.removeMouseEventListeners?.(); }catch{}
+  setMouseBlocked(true);
+
+  startSampling();
 
   const t0=performance.now(), timerEl=$('#timer');
   for(let i=0; i<images.length && collecting; i++){
@@ -397,9 +425,10 @@ async function runStudy(){
     }
   }
   collecting=false; stopSampling(); statusText.textContent='Finalizado';
+  setMouseBlocked(false);
   drawOverlays();
 }
-function stopStudy(){ collecting=false; stopSampling(); statusText.textContent='Detenido'; }
+function stopStudy(){ collecting=false; stopSampling(); statusText.textContent='Detenido'; setMouseBlocked(false); }
 
 /* ===== exportes ===== */
 function exportCSV(){
@@ -445,13 +474,11 @@ function toggleFullscreen(){
 $('#btnFullscreen').onclick = toggleFullscreen;
 document.addEventListener('fullscreenchange', ()=>{ resizeCanvases(); });
 
-/* ===== atajos de teclado (Q,W,E) ===== */
+/* ===== atajos (Q/W/E) ===== */
 document.addEventListener('keydown', (ev)=>{
-  // no interferir si se escribe en inputs o hay modificadores
   const tag = (ev.target && ev.target.tagName)||'';
   if (ev.ctrlKey||ev.metaKey||ev.altKey) return;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || ev.target.isContentEditable) return;
-
   const k = ev.key.toLowerCase();
   if (k==='q'){ buildCalibrationGrid(); runCalibration(); }
   else if (k==='w'){ runStudy(); }
