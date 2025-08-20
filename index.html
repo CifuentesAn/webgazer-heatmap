@@ -1,622 +1,472 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Panel de Eye-tracking (WebGazer + Heatmaps)</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    :root{
-      --bg:#0b0d10; --panel:#111418; --muted:#1a1f25; --text:#e9eef5; --sub:#b8c0cc;
-      --brand:#49a6ff; --ok:#22c55e; --warn:#f59e0b; --danger:#ef4444;
-      --card:#0f1318; --shadow: 0 10px 30px rgba(0,0,0,.35);
-    }
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{margin:0;background:linear-gradient(180deg,#0a0c10,#0c1117);color:var(--text);font:14px/1.5 Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial}
-    .app{display:flex;min-height:100vh}
-    aside{width:340px;background:linear-gradient(180deg,#0d1117,#0b0f14);border-right:1px solid #10151c;padding:18px;position:sticky;top:0;height:100vh;overflow:auto}
-    main{flex:1;display:flex;flex-direction:column}
-    h1{font-size:18px;margin:0 0 12px;font-weight:700;letter-spacing:.2px}
-    h2{font-size:13px;margin:18px 0 8px;color:var(--sub);text-transform:uppercase;letter-spacing:.12em}
-    .card{background:var(--card);border:1px solid #121820;border-radius:14px;padding:14px;margin-bottom:14px;box-shadow:var(--shadow)}
-    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-    .btn{appearance:none;border:1px solid #1e2630;background:#121922;color:var(--text);padding:8px 12px;border-radius:10px;font-weight:600;cursor:pointer;transition:.15s}
-    .btn:hover{border-color:#2a3442;background:#0f141b}
-    .btn.brand{background:linear-gradient(180deg,#1b84ff,#0f6be6);border-color:#1870f2}
-    .btn.brand:hover{filter:brightness(1.03)}
-    .btn.ok{background:linear-gradient(180deg,#27d17c,#0fb368);border-color:#10b981}
-    .btn.warn{background:linear-gradient(180deg,#fbbf24,#f59e0b);border-color:#f59e0b;color:#0b0d10}
-    .btn.ghost{background:transparent;border-color:#26303b}
-    .muted{color:var(--sub);font-size:12px}
-    input[type="file"], input[type="number"], input[type="range"], input[type="text"]{width:100%;background:#0f141a;color:var(--text);border:1px solid #1e2630;border-radius:10px;padding:8px 10px}
-    input[type="range"]{accent-color:var(--brand)}
-    label{display:block;font-size:12px;color:var(--sub);margin-bottom:6px}
-    .list{display:flex;flex-direction:column;gap:8px}
-    .item{display:flex;gap:10px;align-items:center;background:#0c1218;border:1px solid #141c25;padding:8px;border-radius:10px}
-    .item img{width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid #1b2430}
-    .item .meta{flex:1;min-width:0}
-    .item .meta .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .item .actions{display:flex;gap:6px}
-    .toggle{display:flex;align-items:center;gap:8px}
-    .toggle input{accent-color:var(--brand)}
-
-    .stage-wrap{flex:1;display:flex;gap:12px;padding:16px}
-    .stage{flex:1;display:grid;place-items:center;background:#0b0f14;border-left:1px solid #0f151d;position:relative;overflow:hidden}
-    .canvas-layer{position:absolute;inset:0}
-    #imageCanvas{position:absolute;inset:0}
-    #heatCanvas, #pointsCanvas{position:absolute;inset:0;pointer-events:none}
-    .toolbar{position:sticky;top:0;background:linear-gradient(180deg,#0e141b,#0c1016);border-bottom:1px solid #111922;padding:10px 14px;display:flex;gap:10px;align-items:center}
-    .spacer{flex:1}
-
-    .calib-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.35);backdrop-filter:saturate(120%) blur(2px)}
-    .calib-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:0}
-    .calib-dot{width:16px;height:16px;border-radius:50%;background:#1b84ff;box-shadow:0 0 0 6px rgba(24,112,242,.2), 0 0 0 14px rgba(24,112,242,.07);margin:auto;cursor:crosshair}
-    .calib-instructions{position:absolute;bottom:16px;left:16px;right:16px;background:rgba(9,12,16,.85);border:1px solid #141b24;border-radius:12px;padding:10px;color:#cbd5e1}
-
-    video#webgazerVideoFeed, canvas#webgazerVideoCanvas, canvas#webgazerFaceOverlay, canvas#webgazerFaceFeedbackBox{display:none !important}
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Panel de Eye-tracking (WebGazer + Heatmap KDE)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0d10; --panel:#111418; --muted:#1a1f25; --text:#e9eef5; --sub:#b8c0cc;
+    --brand:#49a6ff; --ok:#22c55e; --warn:#f59e0b; --card:#0f1318; --shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:linear-gradient(180deg,#0a0c10,#0c1117);color:var(--text);font:14px/1.5 Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial}
+  .app{display:flex;min-height:100vh}
+  aside{width:340px;background:linear-gradient(180deg,#0d1117,#0b0f14);border-right:1px solid #10151c;padding:18px;position:sticky;top:0;height:100vh;overflow:auto}
+  main{flex:1;display:flex;flex-direction:column}
+  h1{font-size:18px;margin:0 0 12px;font-weight:700}
+  h2{font-size:13px;margin:18px 0 8px;color:var(--sub);text-transform:uppercase;letter-spacing:.12em}
+  .card{background:var(--card);border:1px solid #121820;border-radius:14px;padding:14px;margin-bottom:14px;box-shadow:var(--shadow)}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .btn{appearance:none;border:1px solid #1e2630;background:#121922;color:#e9eef5;padding:8px 12px;border-radius:10px;font-weight:600;cursor:pointer}
+  .btn.brand{background:linear-gradient(180deg,#1b84ff,#0f6be6);border-color:#1870f2}
+  .btn.ok{background:linear-gradient(180deg,#27d17c,#0fb368);border-color:#10b981}
+  .btn.warn{background:linear-gradient(180deg,#fbbf24,#f59e0b);border-color:#f59e0b;color:#0b0d10}
+  .btn.ghost{background:transparent;border-color:#26303b}
+  .muted{color:var(--sub);font-size:12px}
+  input[type="file"],input[type="number"],input[type="text"]{width:100%;background:#0f141a;color:#e9eef5;border:1px solid #1e2630;border-radius:10px;padding:8px 10px}
+  label{display:block;font-size:12px;color:var(--sub);margin-bottom:6px}
+  .list{display:flex;flex-direction:column;gap:8px}
+  .item{display:flex;gap:10px;align-items:center;background:#0c1218;border:1px solid #141c25;padding:8px;border-radius:10px}
+  .item img{width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid #1b2430}
+  .item .meta{flex:1;min-width:0}
+  .item .meta .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .stage-wrap{flex:1;display:flex;gap:12px;padding:16px}
+  .stage{flex:1;display:grid;place-items:center;background:#0b0f14;border-left:1px solid #0f151d;position:relative;overflow:hidden}
+  .canvas-layer{position:absolute;inset:0}
+  #heatCanvas,#pointsCanvas{pointer-events:none}
+  .toolbar{position:sticky;top:0;background:linear-gradient(180deg,#0e141b,#0c1016);border-bottom:1px solid #111922;padding:10px 14px;display:flex;gap:10px;align-items:center}
+  .spacer{flex:1}
+  .calib-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.35)}
+  .calib-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr)}
+  .calib-dot{width:16px;height:16px;border-radius:50%;background:#1b84ff;box-shadow:0 0 0 6px rgba(24,112,242,.2),0 0 0 14px rgba(24,112,242,.07);margin:auto;cursor:crosshair}
+  video#webgazerVideoFeed,canvas#webgazerVideoCanvas,canvas#webgazerFaceOverlay,canvas#webgazerFaceFeedbackBox{display:none !important}
+</style>
 </head>
 <body>
-  <div class="app">
-    <aside>
-      <h1>Panel de control</h1>
-      <div class="card">
-        <h2>1 · Imágenes del estudio</h2>
-        <label>Sube 1 o varias imágenes (JPG/PNG)</label>
-        <input id="fileInput" type="file" accept="image/*" multiple />
-        <div class="muted" style="margin-top:6px">Puedes reordenarlas y borrar las que no uses.</div>
-        <div id="imageList" class="list" style="margin-top:10px"></div>
-        <div class="row" style="margin-top:10px">
-          <button id="btnLoadAssets" class="btn">Cargar imágenes del repo (assets/)</button>
-        </div>
-        <div class="muted" style="margin-top:6px">Opcional: agrega <code>assets/manifest.json</code> con un array de nombres de archivo para precargar estímulos desde GitHub Pages.</div>
-      </div>
+<div class="app">
+  <aside>
+    <h1>Panel de control</h1>
+    <div class="card">
+      <h2>1 · Imágenes del estudio</h2>
+      <label>Sube 1 o varias imágenes (JPG/PNG)</label>
+      <input id="fileInput" type="file" accept="image/*" multiple>
+      <div class="muted" style="margin-top:6px">Puedes reordenarlas y borrar las que no uses.</div>
+      <div id="imageList" class="list" style="margin-top:10px"></div>
+    </div>
 
-      <div class="card">
-        <h2>2 · Parámetros</h2>
-        <div class="row">
-          <div style="flex:1">
-            <label>Duración por imagen (s)</label>
-            <input id="trialSeconds" type="number" min="1" max="120" value="6" />
-          </div>
-          <div style="flex:1">
-            <label>Radio heatmap (px)</label>
-            <input id="hmRadius" type="number" min="10" max="200" value="60" />
-          </div>
+    <div class="card">
+      <h2>2 · Parámetros</h2>
+      <div class="row">
+        <div style="flex:1">
+          <label>Duración por imagen (s)</label>
+          <input id="trialSeconds" type="number" min="1" max="120" value="6">
         </div>
-        <div class="row" style="margin-top:8px">
-          <div style="flex:1">
-            <label>Intensidad heatmap (0.1–2.0)</label>
-            <input id="hmIntensity" type="text" inputmode="decimal" value="1.0" />
-          </div>
-          <div style="flex:1">
-            <label>FPS muestreo (Hz)</label>
-            <input id="sampleHz" type="number" min="1" max="60" value="30" />
-          </div>
-        </div>
-        <div class="row" style="margin-top:8px">
-          <label class="toggle"><input id="togglePoints" type="checkbox" checked /> Mostrar puntos</label>
+        <div style="flex:1">
+          <label>Radio heatmap (px)</label>
+          <input id="hmRadius" type="number" min="10" max="240" value="60">
         </div>
       </div>
-
-      <div class="card">
-        <h2>3 · Flujo</h2>
-        <div class="row">
-          <button id="btnStartCam" class="btn brand">Iniciar cámara</button>
-          <button id="btnCalibrate" class="btn">Calibrar</button>
+      <div class="row" style="margin-top:8px">
+        <div style="flex:1">
+          <label>Intensidad heatmap (0.05–2.0)</label>
+          <input id="hmIntensity" type="text" inputmode="decimal" value="1.0">
         </div>
-        <div class="row" style="margin-top:8px">
-          <button id="btnRun" class="btn ok">Iniciar estudio</button>
-          <button id="btnStop" class="btn warn">Detener</button>
+        <div style="flex:1">
+          <label>FPS muestreo (Hz)</label>
+          <input id="sampleHz" type="number" min="1" max="60" value="30">
         </div>
       </div>
-
-      <div class="card">
-        <h2>Exportar</h2>
-        <div class="row">
-          <button id="btnExportCSV" class="btn">Exportar CSV</button>
-        </div>
-        <div class="row" style="margin-top:8px">
-          <button id="btnSaveHeat" class="btn">Guardar Heatmap PNG</button>
-          <button id="btnSaveComposite" class="btn">Heatmap + Imagen</button>
-        </div>
-        <div class="muted" style="margin-top:8px">Los exportes usan sólo datos locales; no se sube nada.</div>
+      <div class="row" style="margin-top:8px">
+        <label><input id="togglePoints" type="checkbox" checked> Mostrar puntos</label>
       </div>
+    </div>
 
-      <div class="card">
-        <h2>Notas rápidas</h2>
-        <ul class="muted" style="margin:6px 0 0 16px;line-height:1.6">
-          <li>Iluminación frontal y rostro centrado mejoran la precisión.</li>
-          <li>Durante la calibración, haz 5–10 clics por punto.</li>
-          <li>Evita moverte o cambiar la distancia a la pantalla entre calibración y prueba.</li>
-        </ul>
+    <div class="card">
+      <h2>3 · Flujo</h2>
+      <div class="row">
+        <button id="btnStartCam" class="btn brand">Iniciar cámara</button>
+        <button id="btnCalibrate" class="btn">Calibrar</button>
       </div>
-    </aside>
-
-    <main>
-      <div class="toolbar">
-        <div class="row">
-          <span class="muted">Estado:&nbsp;</span>
-          <span id="statusText">Listo</span>
-        </div>
-        <div class="spacer"></div>
-        <div class="row muted">
-          <span>Imagen:</span><span id="imgIndex">–</span>
-          <span>Tiempo:</span><span id="timer">0.0s</span>
-          <span>Muestras:</span><span id="sampleCount">0</span>
-        </div>
+      <div class="row" style="margin-top:8px">
+        <button id="btnRun" class="btn ok">Iniciar estudio</button>
+        <button id="btnStop" class="btn warn">Detener</button>
       </div>
+    </div>
 
-      <div class="stage-wrap">
-        <div class="stage" id="stage">
-          <canvas id="imageCanvas" class="canvas-layer"></canvas>
-          <canvas id="heatCanvas" class="canvas-layer"></canvas>
-          <canvas id="pointsCanvas" class="canvas-layer"></canvas>
+    <div class="card">
+      <h2>Exportar</h2>
+      <div class="row"><button id="btnExportCSV" class="btn">Exportar CSV</button></div>
+      <div class="row" style="margin-top:8px">
+        <button id="btnSaveHeat" class="btn">Guardar Heatmap PNG</button>
+        <button id="btnSaveComposite" class="btn">Heatmap + Imagen</button>
+      </div>
+      <div class="muted" style="margin-top:8px">Los exportes usan sólo datos locales; no se sube nada.</div>
+    </div>
+  </aside>
 
-          <div class="calib-overlay" id="calibOverlay">
-            <div class="calib-grid" id="calibGrid"></div>
-            <div class="calib-instructions" id="calibText">
-              Haz clic varias veces en cada punto azul (mínimo 5 por punto). Avanza por los 9 puntos.
-            </div>
-          </div>
+  <main>
+    <div class="toolbar">
+      <div class="row"><span class="muted">Estado:&nbsp;</span><span id="statusText">Listo</span></div>
+      <div class="spacer"></div>
+      <div class="row muted"><span>Imagen:</span><span id="imgIndex">–</span><span>Tiempo:</span><span id="timer">0.0s</span><span>Muestras:</span><span id="sampleCount">0</span></div>
+    </div>
+    <div class="stage-wrap">
+      <div class="stage" id="stage">
+        <canvas id="imageCanvas" class="canvas-layer"></canvas>
+        <canvas id="heatCanvas" class="canvas-layer"></canvas>
+        <canvas id="pointsCanvas" class="canvas-layer"></canvas>
+
+        <div class="calib-overlay" id="calibOverlay">
+          <div class="calib-grid" id="calibGrid"></div>
         </div>
       </div>
-    </main>
-  </div>
+    </div>
+  </main>
+</div>
 
-  <!-- WebGazer desde CDN oficial -->
-  <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
-  <script>
-  // ===== Versión =====
-  const APP_VERSION = 'v0.3.3-heatfix';
+<script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+<script>
+/* -------- utilidades -------- */
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+function downloadBlob(blob, filename){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 1200); }
+function num(v, d=0){ const n=parseFloat(String(v).replace(',','.')); return Number.isFinite(n)?n:d; }
 
-  // ===== Utilidades =====
-  const $ = s => document.querySelector(s);
-  const $$ = s => Array.from(document.querySelectorAll(s));
-  const sleep = ms => new Promise(r=>setTimeout(r,ms));
-  function downloadBlob(blob, filename){
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(a.href), 1500);
+/* -------- estado -------- */
+let images=[], currentIndex=-1, collecting=false, sampleInterval=null, startTime=0;
+const pointsByImage = new Map(); // id -> [{t,x,y}]
+const params = { trialSeconds:6, hmRadius:60, hmIntensity:1.0, sampleHz:30 };
+
+/* -------- canvas -------- */
+const imageCanvas = $('#imageCanvas'), pointsCanvas = $('#pointsCanvas'), heatCanvas = $('#heatCanvas'), stageEl = $('#stage');
+const iCtx = imageCanvas.getContext('2d'), pCtx = pointsCanvas.getContext('2d'), hCtx = heatCanvas.getContext('2d');
+function resizeCanvases(){
+  const r = stageEl.getBoundingClientRect();
+  for(const c of [imageCanvas, pointsCanvas, heatCanvas]){ c.width=Math.max(320, r.width|0); c.height=Math.max(240, r.height|0); }
+  if(currentIndex>=0) drawCurrentImage();
+  drawOverlays();
+}
+addEventListener('resize', resizeCanvases);
+
+/* -------- carga imágenes -------- */
+$('#fileInput').addEventListener('change', async (e)=>{
+  const files = Array.from(e.target.files||[]);
+  for(const f of files){
+    if(!f.type.startsWith('image/')) continue;
+    const url = URL.createObjectURL(f);
+    const img = new Image(); await new Promise(res=>{ img.onload=res; img.src=url; });
+    const item = { id: crypto.randomUUID(), name:f.name, url, imgEl:img, w:img.naturalWidth, h:img.naturalHeight };
+    images.push(item); pointsByImage.set(item.id, []);
   }
-  // OffscreenCanvas fallback
-  function makeCanvas(w,h){
-    if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w,h);
-    const c = document.createElement('canvas'); c.width=w; c.height=h; return c;
-  }
-  // Lectura robusta de decimales: acepta "0,1" o "0.1"
-  function num(val, def=0){
-    if (val == null) return def;
-    const s = String(val).trim().replace(',', '.');
-    const n = parseFloat(s);
-    return Number.isFinite(n) ? n : def;
-  }
-
-  // ===== Estado =====
-  let images = []; // {id, name, url, imgEl, w, h}
-  let currentIndex = -1;
-  let collecting = false;
-  let startTime = 0;
-  let sampleInterval = null;
-  const pointsByImage = new Map(); // id -> [{t, x, y}]
-
-  // Parámetros
-  const params = {
-    trialSeconds: 6,
-    hmRadius: 60,
-    hmIntensity: 1.0,
-    sampleHz: 30
-  };
-
-  // Canvas
-  const imageCanvas = document.getElementById('imageCanvas');
-  const pointsCanvas = document.getElementById('pointsCanvas');
-  const heatCanvas = document.getElementById('heatCanvas');
-  const stageEl = document.getElementById('stage');
-  const iCtx = imageCanvas.getContext('2d');
-  const pCtx = pointsCanvas.getContext('2d');
-  const hCtx = heatCanvas.getContext('2d');
-
-  function resizeCanvases(){
-    const rect = stageEl.getBoundingClientRect();
-    for (const c of [imageCanvas, pointsCanvas, heatCanvas]){
-      c.width = Math.max(320, Math.floor(rect.width));
-      c.height = Math.max(240, Math.floor(rect.height));
-    }
-    if (currentIndex >= 0) drawCurrentImage();
-    drawOverlays();
-  }
-  window.addEventListener('resize', resizeCanvases);
-
-  // ===== Carga de imágenes =====
-  document.getElementById('fileInput').addEventListener('change', async (e)=>{
-    const files = Array.from(e.target.files || []);
-    for (const f of files){
-      if (!f.type.startsWith('image/')) continue;
-      const url = URL.createObjectURL(f);
-      const img = new Image();
-      await new Promise(res=>{ img.onload=res; img.src=url; });
-      const item = { id: crypto.randomUUID(), name: f.name, url, imgEl: img, w: img.naturalWidth, h: img.naturalHeight };
-      images.push(item);
-      pointsByImage.set(item.id, []);
-    }
-    renderImageList();
-    if (currentIndex === -1 && images.length>0){ currentIndex = 0; drawCurrentImage(); }
+  renderImageList();
+  if(currentIndex===-1 && images.length){ currentIndex=0; drawCurrentImage(); }
+});
+function renderImageList(){
+  const list = $('#imageList'); list.innerHTML='';
+  images.forEach((it, idx)=>{
+    const el = document.createElement('div'); el.className='item';
+    el.innerHTML = `<img src="${it.url}"><div class="meta"><div class="name">${it.name}</div><div class="muted">${it.w}×${it.h}px</div></div>
+    <div class="actions"><button class="btn ghost" title="Arriba">↑</button><button class="btn ghost" title="Abajo">↓</button><button class="btn ghost" title="Ver">👁</button><button class="btn ghost" title="Borrar">✕</button></div>`;
+    const [up,down,view,del]=el.querySelectorAll('button');
+    up.onclick=()=>{ if(idx>0){ [images[idx-1],images[idx]]=[images[idx],images[idx-1]]; renderImageList(); } };
+    down.onclick=()=>{ if(idx<images.length-1){ [images[idx+1],images[idx]]=[images[idx],images[idx+1]]; renderImageList(); } };
+    view.onclick=()=>{ currentIndex=idx; drawCurrentImage(); };
+    del.onclick=()=>{ if(confirm('¿Eliminar esta imagen?')){ URL.revokeObjectURL(it.url); images.splice(idx,1); renderImageList(); if(currentIndex>=images.length) currentIndex=images.length-1; drawCurrentImage(); } };
+    list.appendChild(el);
   });
+}
 
-  function renderImageList(){
-    const list = document.getElementById('imageList');
-    list.innerHTML = '';
-    images.forEach((it, idx)=>{
-      const el = document.createElement('div');
-      el.className = 'item';
-      el.innerHTML = `
-        <img src="${it.url}" alt="${it.name}">
-        <div class="meta">
-          <div class="name">${it.name}</div>
-          <div class="muted">${it.w}×${it.h}px</div>
-        </div>
-        <div class="actions">
-          <button class="btn ghost" title="Arriba">↑</button>
-          <button class="btn ghost" title="Abajo">↓</button>
-          <button class="btn ghost" title="Ver">👁</button>
-          <button class="btn ghost" title="Borrar">✕</button>
-        </div>`;
-      const [btnUp, btnDown, btnView, btnDel] = el.querySelectorAll('button');
-      btnUp.onclick = ()=>{ if (idx>0){ const t = images[idx-1]; images[idx-1]=images[idx]; images[idx]=t; renderImageList(); }};
-      btnDown.onclick=()=>{ if (idx<images.length-1){ const t = images[idx+1]; images[idx+1]=images[idx]; images[idx]=t; renderImageList(); }};
-      btnView.onclick=()=>{ currentIndex = idx; drawCurrentImage(); };
-      btnDel.onclick = ()=>{
-        if(confirm('¿Eliminar esta imagen?')){
-          URL.revokeObjectURL(it.url);
-          images.splice(idx,1);
-          renderImageList();
-          if(currentIndex>=images.length) currentIndex=images.length-1;
-          drawCurrentImage();
-        }
-      };
-      list.appendChild(el);
-    });
+/* -------- dibujo -------- */
+function drawCurrentImage(){
+  iCtx.clearRect(0,0,imageCanvas.width,imageCanvas.height);
+  if(currentIndex<0 || !images[currentIndex]) return;
+  const img = images[currentIndex].imgEl;
+  const W=imageCanvas.width, H=imageCanvas.height;
+  const s = Math.min(W/img.naturalWidth, H/img.naturalHeight);
+  const w=(img.naturalWidth*s)|0, h=(img.naturalHeight*s)|0;
+  const dx=((W-w)/2)|0, dy=((H-h)/2)|0;
+  iCtx.imageSmoothingQuality='high'; iCtx.drawImage(img,dx,dy,w,h);
+  images[currentIndex]._drawRect = {dx,dy,drawW:w,drawH:h, scale:s};
+  $('#imgIndex').textContent = `${currentIndex+1}/${images.length}`;
+}
+function drawOverlays(){
+  pCtx.clearRect(0,0,pointsCanvas.width,pointsCanvas.height);
+  hCtx.clearRect(0,0,heatCanvas.width,heatCanvas.height); // no HM en vivo
+  if(currentIndex<0) return;
+  if(!$('#togglePoints').checked) return;
+  const img = images[currentIndex], rect = img?._drawRect; if(!rect) return;
+  const pts = pointsByImage.get(img.id)||[];
+  pCtx.save(); pCtx.fillStyle='rgba(255,255,255,.9)';
+  for(const pt of pts){
+    const x = rect.dx + pt.x*rect.drawW, y = rect.dy + pt.y*rect.drawH;
+    pCtx.beginPath(); pCtx.arc(x,y,2,0,Math.PI*2); pCtx.fill();
   }
+  pCtx.restore();
+}
 
-  // ===== Dibujo (sin heatmap en vivo) =====
-  function drawCurrentImage(){
-    iCtx.clearRect(0,0,imageCanvas.width,imageCanvas.height);
-    if (currentIndex<0 || !images[currentIndex]) return;
-    const img = images[currentIndex].imgEl;
-    const stageW = imageCanvas.width, stageH = imageCanvas.height;
-    const scale = Math.min(stageW/img.naturalWidth, stageH/img.naturalHeight);
-    const drawW = img.naturalWidth * scale;
-    const drawH = img.naturalHeight * scale;
-    const dx = (stageW - drawW)/2;
-    const dy = (stageH - drawH)/2;
-    iCtx.imageSmoothingQuality = 'high';
-    iCtx.drawImage(img, dx, dy, drawW, drawH);
-    images[currentIndex]._drawRect = {dx,dy,drawW,drawH, scale};
-    document.getElementById('imgIndex').textContent = `${currentIndex+1}/${images.length}`;
+/* -------- HEATMAP KDE (desde cero) -------- */
+// Paleta frío→caliente
+function colorLUT(t){
+  const stops = [
+    [0.00,[0,32,128]],[0.20,[0,140,255]],[0.40,[0,200,120]],[0.60,[255,230,0]],[0.80,[255,140,0]],[1.00,[230,30,0]]
+  ];
+  for(let i=0;i<stops.length-1;i++){
+    const [p0,c0]=stops[i],[p1,c1]=stops[i+1];
+    if(t>=p0 && t<=p1){ const u=(t-p0)/(p1-p0); return [
+      Math.round(c0[0]*(1-u)+c1[0]*u),
+      Math.round(c0[1]*(1-u)+c1[1]*u),
+      Math.round(c0[2]*(1-u)+c1[2]*u)
+    ]; }
   }
-
-  function drawOverlays(){
-    pCtx.clearRect(0,0,pointsCanvas.width,pointsCanvas.height);
-    hCtx.clearRect(0,0,heatCanvas.width,heatCanvas.height); // no heatmap en vivo
-
-    if (currentIndex<0 || !images[currentIndex]) return;
-    const img = images[currentIndex];
-    const rect = img._drawRect; if (!rect) return;
-
-    if (document.getElementById('togglePoints').checked){
-      const pts = pointsByImage.get(img.id) || [];
-      pCtx.save();
-      pCtx.fillStyle = 'rgba(255,255,255,.9)';
-      for (const pt of pts){
-        const sx = rect.dx + pt.x*rect.drawW;
-        const sy = rect.dy + pt.y*rect.drawH;
-        pCtx.globalAlpha = .7;
-        pCtx.beginPath(); pCtx.arc(sx,sy,2.2,0,Math.PI*2); pCtx.fill();
+  return stops.at(-1)[1];
+}
+// kernel gaussiano 1D
+function gaussianKernel1D(sigma){
+  sigma=Math.max(0.8,sigma);
+  const r = Math.max(1, Math.round(sigma*3));
+  const size = 2*r+1;
+  const k = new Float32Array(size);
+  const s2 = 2*sigma*sigma;
+  let sum=0;
+  for(let i=-r,idx=0;i<=r;i++,idx++){ const v=Math.exp(-(i*i)/s2); k[idx]=v; sum+=v; }
+  for(let i=0;i<size;i++) k[i]/=sum;
+  return {k,r};
+}
+// convoluciones separables (bordes por clamp)
+function blurH(src, dst, W, H, k, r){
+  for(let y=0;y<H;y++){
+    const o=y*W;
+    for(let x=0;x<W;x++){
+      let acc=0;
+      for(let i=-r;i<=r;i++){
+        const xi = Math.min(W-1, Math.max(0, x+i));
+        acc += src[o+xi] * k[i+r];
       }
-      pCtx.restore();
+      dst[o+x]=acc;
     }
   }
-
-  // ===== Heatmap (sólo al exportar) =====
-  function renderHeatmap(normPoints, w, h, radius=60, intensity=1.0){
-    // acumulación en grises con compensación por radio
-    const acc = makeCanvas(w,h);
-    const ctx = acc.getContext('2d');
-    ctx.clearRect(0,0,w,h);
-    ctx.globalCompositeOperation = 'lighter';
-
-    const r = Math.max(8, radius|0);
-    let amp = 0.10 * num(intensity,1.0) * (60 / r); // menos energía si el radio es grande
-    amp = Math.max(0.035, Math.min(0.18, amp));
-
-    for (const pt of normPoints){
-      const x = pt.x*w, y = pt.y*h;
-      const g = ctx.createRadialGradient(x,y,0,x,y,r);
-      g.addColorStop(0, `rgba(255,255,255,${amp})`);
-      g.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+}
+function blurV(src, dst, W, H, k, r){
+  for(let y=0;y<H;y++){
+    for(let x=0;x<W;x++){
+      let acc=0;
+      for(let i=-r;i<=r;i++){
+        const yi = Math.min(H-1, Math.max(0, y+i));
+        acc += src[yi*W+x] * k[i+r];
+      }
+      dst[y*W+x]=acc;
     }
+  }
+}
+// renderer principal
+function renderHeatmapKDE(normPoints, w, h, radius=60, intensity=1.0){
+  // malla reducida (máx. 512 px por lado)
+  const maxSide = 512;
+  const scale = Math.max(1, Math.ceil(Math.max(w,h) / maxSide));
+  const W = Math.max(8, Math.floor(w/scale));
+  const H = Math.max(8, Math.floor(h/scale));
 
-    const imgData = ctx.getImageData(0,0,w,h);
-    const data = imgData.data;
+  // 1) contar puntos en malla
+  const grid = new Float32Array(W*H);
+  for(const p of normPoints){
+    const x = Math.min(W-1, Math.max(0, Math.floor(p.x*W)));
+    const y = Math.min(H-1, Math.max(0, Math.floor(p.y*H)));
+    grid[y*W+x] += 1;
+  }
 
-    // histograma ignorando ceros
-    const hist = new Uint32Array(256);
-    let nonzero = 0;
-    for (let i=0;i<data.length;i+=4){
-      const v = data[i]; if (v>0){ hist[v]++; nonzero++; }
-    }
-    if (!nonzero){ const out0 = makeCanvas(w,h); out0.getContext('2d').clearRect(0,0,w,h); return out0; }
+  // 2) blur gaussiano (sigma en unidades de malla)
+  const sigma = Math.max(0.8, (radius/scale) * 0.5);
+  const {k,r} = gaussianKernel1D(sigma);
+  const tmp = new Float32Array(W*H);
+  const blur1 = new Float32Array(W*H);
+  blurH(grid,tmp,W,H,k,r);
+  blurV(tmp,blur1,W,H,k,r);
 
-    const qVal = q => {
-      const target = Math.max(1, Math.round(nonzero*q));
-      let cum=0; for (let v=1; v<256; v++){ cum+=hist[v]; if (cum>=target) return v; }
-      return 255;
+  // 3) exposición por intensidad
+  for(let i=0;i<blur1.length;i++) blur1[i] *= Math.max(0.05, intensity);
+
+  // 4) percentiles robustos (qLow=0.20, qHigh=0.995)
+  const vals = Array.from(blur1).filter(v=>v>0);
+  if(!vals.length){
+    const empty = document.createElement('canvas'); empty.width=w; empty.height=h;
+    return empty;
+  }
+  vals.sort((a,b)=>a-b);
+  const q = (arr,p) => arr[Math.min(arr.length-1, Math.max(0, Math.floor(p*arr.length)))];
+  let pLow = q(vals,0.20), pHigh = q(vals,0.995);
+  if(pHigh <= pLow){ pLow = Math.max(0, pHigh*0.5); pHigh = pLow + 1e-6; }
+
+  // 5) colorear en malla pequeña
+  const small = document.createElement('canvas'); small.width=W; small.height=H;
+  const sctx = small.getContext('2d', {willReadFrequently:true});
+  const im = sctx.createImageData(W,H);
+  const od = im.data;
+  const den = pHigh - pLow;
+  const gammaC=0.90, gammaA=0.92;
+
+  for(let i=0;i<blur1.length;i++){
+    let v = (blur1[i]-pLow)/den; if(v<0)v=0; if(v>1)v=1;
+    const vc = Math.pow(v, gammaC);
+    const [R,G,B] = colorLUT(vc);
+    const off = i*4;
+    od[off]=R; od[off+1]=G; od[off+2]=B; od[off+3]=Math.round(255*Math.pow(v,gammaA));
+  }
+  sctx.putImageData(im,0,0);
+
+  // 6) escalar suavemente a tamaño final
+  const out = document.createElement('canvas'); out.width=w; out.height=h;
+  const octx = out.getContext('2d');
+  octx.imageSmoothingEnabled = true;
+  octx.drawImage(small, 0,0,w,h);
+  return out;
+}
+
+/* -------- cámara / muestreo -------- */
+const statusText = $('#statusText');
+async function startCamera(){
+  statusText.textContent='Solicitando cámara...';
+  try{
+    await webgazer.setGazeListener(()=>{}).begin();
+    webgazer.params.showVideoPreview = true;
+    webgazer.params.showFaceOverlay = false;
+    webgazer.params.showFaceFeedbackBox = false;
+    try{ webgazer.showPredictionPoints(false); }catch{}
+    statusText.textContent='Cámara lista';
+  }catch(e){
+    console.error(e);
+    alert('No se pudo iniciar la cámara. Usa HTTPS y acepta permisos.');
+    statusText.textContent='Error al iniciar cámara';
+  }
+}
+function viewportToImageNorm(x,y){
+  const rect = images[currentIndex]?._drawRect; if(!rect) return null;
+  if(x<rect.dx||y<rect.dy||x>rect.dx+rect.drawW||y>rect.dy+rect.drawH) return null;
+  return { x:(x-rect.dx)/rect.drawW, y:(y-rect.dy)/rect.drawH };
+}
+let ema=null; const ALPHA=0.35;
+function startSampling(){
+  const hz = Math.max(1, Math.min(60, num($('#sampleHz').value,30)));
+  const period = 1000/hz;
+  if(sampleInterval) clearInterval(sampleInterval);
+  sampleInterval = setInterval(async ()=>{
+    const pred = await webgazer.getCurrentPrediction();
+    if(!pred) return;
+    ema = ema ? {x:ALPHA*pred.x+(1-ALPHA)*ema.x, y:ALPHA*pred.y+(1-ALPHA)*ema.y} : {x:pred.x, y:pred.y};
+    const norm = viewportToImageNorm(ema.x, ema.y);
+    if(!norm) return;
+    const t = performance.now()-startTime;
+    const arr = pointsByImage.get(images[currentIndex].id);
+    arr.push({t,x:norm.x,y:norm.y});
+    $('#sampleCount').textContent = String(arr.length);
+    if($('#togglePoints').checked) drawOverlays();
+  }, period);
+}
+function stopSampling(){ if(sampleInterval){ clearInterval(sampleInterval); sampleInterval=null; } }
+
+/* -------- calibración mínima -------- */
+const calibOverlay = $('#calibOverlay'), calibGrid = $('#calibGrid');
+function buildCalibrationGrid(){ calibGrid.innerHTML=''; for(let i=0;i<9;i++){ const d=document.createElement('div'); d.className='calib-dot'; calibGrid.appendChild(d); } }
+async function runCalibration(){
+  if(!images.length){ alert('Primero sube imágenes.'); return; }
+  try{ webgazer.clearData(); }catch{}
+  ema=null;
+  calibOverlay.style.display='flex';
+  buildCalibrationGrid();
+  const dots = Array.from(calibGrid.children);
+  const need=6;
+  dots.forEach(d=>{
+    d.dataset.count='0';
+    d.onclick=()=>{
+      const c=+d.dataset.count+1; d.dataset.count=String(c);
+      const r=d.getBoundingClientRect(); const sx=r.left+r.width/2, sy=r.top+r.height/2;
+      for(let k=0;k<3;k++){ try{ webgazer.recordScreenPosition(sx,sy,'click'); }catch{} }
+      d.style.background = c>=need ? '#22c55e' : '#1b84ff';
     };
-
-    // doble percentil con salvaguardas
-    let pLow  = Math.max(5, qVal(0.30));     // recorte bajo para ver fríos
-    let pHigh = Math.max(80, qVal(0.995));   // recorte alto con piso
-    if (pHigh - pLow < 80) pLow = Math.max(5, pHigh - 160); // rango mínimo
-    const den = Math.max(1, pHigh - pLow);
-
-    const gammaColor = 0.85, gammaAlpha = 0.90;
-
-    function colorLUT(t){
-      const stops = [
-        [0.00,[0,32,128]],   // azul
-        [0.20,[0,140,255]],  // cian
-        [0.40,[0,200,120]],  // verde
-        [0.60,[255,230,0]],  // amarillo
-        [0.80,[255,140,0]],  // naranja
-        [1.00,[230,30,0]]    // rojo
-      ];
-      for (let i=0;i<stops.length-1;i++){
-        const [p0,c0]=stops[i], [p1,c1]=stops[i+1];
-        if (t>=p0 && t<=p1){
-          const u=(t-p0)/(p1-p0);
-          return [
-            Math.round(c0[0]*(1-u)+c1[0]*u),
-            Math.round(c0[1]*(1-u)+c1[1]*u),
-            Math.round(c0[2]*(1-u)+c1[2]*u)
-          ];
-        }
-      }
-      return stops[stops.length-1][1];
-    }
-
-    const out = makeCanvas(w,h);
-    const octx = out.getContext('2d');
-    const outData = octx.createImageData(w,h);
-    const od = outData.data;
-
-    for (let i=0;i<data.length;i+=4){
-      let v = (data[i] - pLow) / den;        // normaliza a [0,1]
-      if (v < 0) v = 0; else if (v > 1) v = 1;
-      const vc = Math.pow(v, gammaColor);
-      const [cr,cg,cb] = colorLUT(vc);
-      od[i]=cr; od[i+1]=cg; od[i+2]=cb; od[i+3]=Math.round(255*Math.pow(v,gammaAlpha));
-    }
-    octx.putImageData(outData,0,0);
-    return out;
-  }
-
-  // ===== WebGazer: inicio y muestreo =====
-  const statusText = document.getElementById('statusText');
-  async function startCamera(){
-    statusText.textContent = 'Solicitando cámara...';
-    try{
-      await webgazer.setGazeListener(()=>{}).begin();
-      webgazer.params.showVideoPreview = true; // oculto por CSS
-      webgazer.params.showFaceOverlay = false;
-      webgazer.params.showFaceFeedbackBox = false;
-      try { webgazer.showPredictionPoints(false); } catch {}
-      try { webgazer.saveDataAcrossSessions(false); } catch {}
-      statusText.textContent = `Cámara lista (${APP_VERSION})`;
-    }catch(err){
-      console.error(err);
-      alert('No se pudo iniciar la cámara. Abre la página por HTTPS o localhost y acepta permisos.');
-      statusText.textContent = 'Error al iniciar cámara';
-    }
-  }
-
-  function viewportToImageNorm(x,y){
-    const rect = images[currentIndex]?._drawRect;
-    if (!rect) return null;
-    if (x<rect.dx || y<rect.dy || x>rect.dx+rect.drawW || y>rect.dy+rect.drawH) return null;
-    const nx = (x - rect.dx)/rect.drawW;
-    const ny = (y - rect.dy)/rect.drawH;
-    return {x:nx, y:ny};
-  }
-
-  // Suavizado EMA
-  let ema = null; const ALPHA = 0.35;
-  function startSampling(){
-    const hz = Math.max(1, Math.min(60, num($('#sampleHz').value, 30)));
-    const period = 1000/hz;
-    if (sampleInterval) clearInterval(sampleInterval);
-    sampleInterval = setInterval(async ()=>{
-      const pred = await webgazer.getCurrentPrediction();
-      if (!pred) return;
-      ema = ema ? { x: ALPHA*pred.x + (1-ALPHA)*ema.x, y: ALPHA*pred.y + (1-ALPHA)*ema.y } : { x: pred.x, y: pred.y };
-      const norm = viewportToImageNorm(ema.x, ema.y);
-      if (!norm) return;
-      const t = performance.now() - startTime;
-      const arr = pointsByImage.get(images[currentIndex].id);
-      arr.push({t, x:norm.x, y:norm.y});
-      document.getElementById('sampleCount').textContent = String(arr.length);
-      if (document.getElementById('togglePoints').checked) drawOverlays();
-    }, period);
-  }
-  function stopSampling(){ if (sampleInterval){ clearInterval(sampleInterval); sampleInterval=null; } }
-
-  // ===== Calibración (entrena con clicks) =====
-  const calibOverlay = document.getElementById('calibOverlay');
-  const calibGrid = document.getElementById('calibGrid');
-  async function runCalibration(){
-    if (!images.length) { alert('Primero sube imágenes.'); return; }
-    try{ webgazer.clearData(); }catch{}
-    ema = null;
-
-    calibOverlay.style.display = 'flex';
-    calibGrid.innerHTML = '';
-    const clicksNeededPerDot = 6;
-    const dots = [];
-    for (let i=0;i<9;i++){
-      const d = document.createElement('div'); d.className='calib-dot'; d.dataset.count='0';
-      d.title = 'Mira fijo este punto y haz varios clics';
-      d.addEventListener('click', ()=>{
-        const c = parseInt(d.dataset.count,10)+1; d.dataset.count=String(c);
-        const r=d.getBoundingClientRect(); const sx=r.left+r.width/2, sy=r.top+r.height/2;
-        for (let k=0;k<3;k++){ try{ webgazer.recordScreenPosition(sx, sy, 'click'); }catch{} } // refuerzo
-        d.style.background = c>=clicksNeededPerDot? '#22c55e' : '#1b84ff';
-        d.style.boxShadow = c>=clicksNeededPerDot? '0 0 0 6px rgba(34,197,94,.25), 0 0 0 14px rgba(34,197,94,.12)' : '0 0 0 6px rgba(24,112,242,.2), 0 0 0 14px rgba(24,112,242,.07)';
-      });
-      dots.push(d); calibGrid.appendChild(d);
-    }
-    await new Promise(resolve=>{
-      const checker=setInterval(()=>{ const ok=dots.every(d=> +d.dataset.count>=clicksNeededPerDot ); if(ok){ clearInterval(checker); resolve(); } }, 300);
-    });
-    calibOverlay.style.display='none';
-    statusText.textContent = 'Calibrado';
-  }
-
-  // ===== Estudio =====
-  async function runStudy(){
-    if (!images.length){ alert('Sube al menos una imagen.'); return; }
-    if (!webgazer.isReady()){ alert('Primero inicia la cámara.'); return; }
-    for (const it of images) pointsByImage.set(it.id, []);
-    currentIndex = 0; drawCurrentImage();
-    const trialSecs = Math.max(1, num($('#trialSeconds').value, 6));
-    collecting = true;
-    statusText.textContent = 'Grabando...';
-
-    startTime = performance.now();
-    startSampling();
-
-    const timerEl = document.getElementById('timer');
-    const tStartGlobal = performance.now();
-
-    for (let i=0; i<images.length && collecting; i++){
-      currentIndex = i; drawCurrentImage();
-      const endAt = performance.now() + trialSecs*1000;
-      while (collecting && performance.now() < endAt){
-        const elapsed = (performance.now()-tStartGlobal)/1000;
-        timerEl.textContent = elapsed.toFixed(1)+'s';
-        drawOverlays();
-        await sleep(50);
-      }
-    }
-
-    collecting = false; stopSampling();
-    statusText.textContent = 'Finalizado';
-    drawOverlays();
-  }
-  function stopStudy(){ collecting=false; stopSampling(); statusText.textContent='Detenido'; }
-
-  // ===== Exportes =====
-  function exportCSV(){
-    const rows = [['image','t_ms','x_norm','y_norm']];
-    for (const it of images){
-      const arr = pointsByImage.get(it.id)||[];
-      for (const p of arr){ rows.push([it.name, Math.round(p.t), p.x.toFixed(5), p.y.toFixed(5)]); }
-    }
-    const csv = rows.map(r=>r.join(',')).join('\n');
-    const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
-    downloadBlob(blob, 'gaze_data.csv');
-  }
-
-  function saveHeatmapPNG(){
-    if (currentIndex<0){ alert('No hay imagen activa.'); return; }
-    const img = images[currentIndex];
-    const rect = img._drawRect; if (!rect) return;
-    const pts = pointsByImage.get(img.id)||[];
-    if (!pts.length){ alert('No hay datos para esta imagen.'); return; }
-    const hm = renderHeatmap(pts, rect.drawW, rect.drawH, num($('#hmRadius').value, 60), num($('#hmIntensity').value, 1.0));
-    const c = document.createElement('canvas'); c.width = rect.drawW; c.height = rect.drawH;
-    const cx = c.getContext('2d');
-    cx.drawImage(hm,0,0);
-    c.toBlob(blob=> downloadBlob(blob, `heatmap_${sanitizeName(img.name)}.png`) );
-  }
-
-  function saveCompositePNG(){
-    if (currentIndex<0){ alert('No hay imagen activa.'); return; }
-    const img = images[currentIndex];
-    const rect = img._drawRect; if (!rect) return;
-    const pts = pointsByImage.get(img.id)||[];
-    if (!pts.length){ alert('No hay datos para esta imagen.'); return; }
-    const hm = renderHeatmap(pts, rect.drawW, rect.drawH, num($('#hmRadius').value, 60), num($('#hmIntensity').value, 1.0));
-    const c = document.createElement('canvas'); c.width = rect.drawW; c.height = rect.drawH;
-    const cx = c.getContext('2d');
-    cx.drawImage(images[currentIndex].imgEl, 0,0, rect.drawW, rect.drawH);
-    cx.globalAlpha = .85; cx.drawImage(hm,0,0);
-    c.toBlob(blob=> downloadBlob(blob, `composite_${sanitizeName(img.name)}.png`) );
-  }
-
-  function sanitizeName(n){ return n.replace(/[^a-z0-9_\-\.]+/gi,'_'); }
-
-  // ===== Assets desde manifest (opcional) =====
-  async function loadAssetsFromManifest(){
-    try{
-      const resp = await fetch('assets/manifest.json', {cache:'no-store'});
-      if(!resp.ok) throw new Error('No manifest');
-      const names = await resp.json();
-      if(!Array.isArray(names)) throw new Error('Manifest no es un array');
-      for (const name of names){
-        const url = `assets/${name}`;
-        const img = new Image();
-        await new Promise(res=>{ img.onload=res; img.src=url; });
-        const item = { id: crypto.randomUUID(), name, url, imgEl: img, w: img.naturalWidth, h: img.naturalHeight };
-        images.push(item);
-        pointsByImage.set(item.id, []);
-      }
-      renderImageList();
-      if (currentIndex === -1 && images.length>0){ currentIndex = 0; drawCurrentImage(); }
-      statusText.textContent = `Cargadas ${names.length} imágenes desde assets/`;
-    }catch(err){
-      console.warn('Manifest no encontrado o inválido:', err);
-    }
-  }
-
-  // ===== Eventos UI =====
-  document.getElementById('btnStartCam').onclick = startCamera;
-  document.getElementById('btnCalibrate').onclick = ()=>{ buildCalibrationGrid(); runCalibration(); };
-  document.getElementById('btnRun').onclick = runStudy;
-  document.getElementById('btnStop').onclick = stopStudy;
-  document.getElementById('btnExportCSV').onclick = exportCSV;
-  document.getElementById('btnSaveHeat').onclick = saveHeatmapPNG;
-  document.getElementById('btnSaveComposite').onclick = saveCompositePNG;
-  document.getElementById('trialSeconds').oninput = e=> params.trialSeconds = num(e.target.value, 6);
-  document.getElementById('hmRadius').oninput     = e=> { params.hmRadius    = num(e.target.value, 60); drawOverlays(); };
-  document.getElementById('hmIntensity').oninput  = e=> { params.hmIntensity = num(e.target.value, 1.0); drawOverlays(); };
-  document.getElementById('sampleHz').oninput     = e=> params.sampleHz      = num(e.target.value, 30);
-  document.getElementById('togglePoints').onchange = drawOverlays;
-  document.getElementById('btnLoadAssets').onclick = ()=>loadAssetsFromManifest();
-
-  function buildCalibrationGrid(){
-    const grid = document.getElementById('calibGrid');
-    grid.innerHTML = '';
-    for (let r=0;r<3;r++){
-      for (let c=0;c<3;c++){
-        const dot = document.createElement('div'); dot.className='calib-dot'; grid.appendChild(dot);
-      }
-    }
-  }
-
-  // ===== Arranque =====
-  window.addEventListener('load', ()=>{
-    resizeCanvases();
-    const st = document.getElementById('statusText');
-    if (st) st.textContent = `Listo (${APP_VERSION})`;
-    // loadAssetsFromManifest(); // opcional
   });
-  </script>
+  await new Promise(res=>{
+    const iv=setInterval(()=>{ if(dots.every(d=>+d.dataset.count>=need)){ clearInterval(iv); res(); } },300);
+  });
+  calibOverlay.style.display='none';
+  statusText.textContent='Calibrado';
+}
+
+/* -------- estudio -------- */
+async function runStudy(){
+  if(!images.length){ alert('Sube al menos una imagen.'); return; }
+  if(!webgazer.isReady()){ alert('Primero inicia la cámara.'); return; }
+  for(const it of images) pointsByImage.set(it.id, []);
+  currentIndex=0; drawCurrentImage();
+  const trial = Math.max(1, num($('#trialSeconds').value,6));
+  collecting=true; statusText.textContent='Grabando...';
+  startTime=performance.now(); startSampling();
+
+  const t0=performance.now(), timerEl=$('#timer');
+  for(let i=0; i<images.length && collecting; i++){
+    currentIndex=i; drawCurrentImage();
+    const end=performance.now()+trial*1000;
+    while(collecting && performance.now()<end){
+      timerEl.textContent=((performance.now()-t0)/1000).toFixed(1)+'s';
+      await sleep(50);
+    }
+  }
+  collecting=false; stopSampling(); statusText.textContent='Finalizado';
+  drawOverlays();
+}
+function stopStudy(){ collecting=false; stopSampling(); statusText.textContent='Detenido'; }
+
+/* -------- exportes -------- */
+function exportCSV(){
+  const rows=[['image','t_ms','x_norm','y_norm']];
+  for(const it of images){
+    const arr=pointsByImage.get(it.id)||[];
+    for(const p of arr) rows.push([it.name, Math.round(p.t), p.x.toFixed(5), p.y.toFixed(5)]);
+  }
+  const blob=new Blob([rows.map(r=>r.join(',')).join('\n')], {type:'text/csv;charset=utf-8'});
+  downloadBlob(blob,'gaze_data.csv');
+}
+function saveHeatmapPNG(){
+  if(currentIndex<0){ alert('No hay imagen activa.'); return; }
+  const img=images[currentIndex], rect=img._drawRect; if(!rect) return;
+  const pts=pointsByImage.get(img.id)||[]; if(!pts.length){ alert('No hay datos.'); return; }
+  const hm = renderHeatmapKDE(pts, rect.drawW, rect.drawH, num($('#hmRadius').value,60), num($('#hmIntensity').value,1.0));
+  const c=document.createElement('canvas'); c.width=rect.drawW; c.height=rect.drawH;
+  c.getContext('2d').drawImage(hm,0,0);
+  c.toBlob(b=>downloadBlob(b, `heatmap_${sanitize(img.name)}.png`));
+}
+function saveCompositePNG(){
+  if(currentIndex<0){ alert('No hay imagen activa.'); return; }
+  const img=images[currentIndex], rect=img._drawRect; if(!rect) return;
+  const pts=pointsByImage.get(img.id)||[]; if(!pts.length){ alert('No hay datos.'); return; }
+  const hm = renderHeatmapKDE(pts, rect.drawW, rect.drawH, num($('#hmRadius').value,60), num($('#hmIntensity').value,1.0));
+  const c=document.createElement('canvas'); c.width=rect.drawW; c.height=rect.drawH;
+  const cx=c.getContext('2d');
+  cx.drawImage(images[currentIndex].imgEl,0,0,rect.drawW,rect.drawH);
+  cx.globalAlpha=.85; cx.drawImage(hm,0,0);
+  c.toBlob(b=>downloadBlob(b, `composite_${sanitize(img.name)}.png`));
+}
+function sanitize(n){ return n.replace(/[^a-z0-9_\-\.]+/gi,'_'); }
+
+/* -------- UI -------- */
+$('#btnStartCam').onclick=startCamera;
+$('#btnCalibrate').onclick=runCalibration;
+$('#btnRun').onclick=runStudy;
+$('#btnStop').onclick=stopStudy;
+$('#btnExportCSV').onclick=exportCSV;
+$('#btnSaveHeat').onclick=saveHeatmapPNG;
+$('#btnSaveComposite').onclick=saveCompositePNG;
+$('#trialSeconds').oninput=e=>params.trialSeconds=num(e.target.value,6);
+$('#hmRadius').oninput=e=>params.hmRadius=num(e.target.value,60);
+$('#hmIntensity').oninput=e=>params.hmIntensity=num(e.target.value,1.0);
+$('#sampleHz').oninput=e=>params.sampleHz=num(e.target.value,30);
+
+/* -------- arranque -------- */
+addEventListener('load', ()=>{ resizeCanvases(); });
+</script>
 </body>
 </html>
