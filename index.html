@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Panel de Eye‑tracking (WebGazer + Heatmaps)</title>
+  <title>Panel de Eye-tracking (WebGazer + Heatmaps)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -76,10 +76,6 @@
           <button id="btnLoadAssets" class="btn">Cargar imágenes del repo (assets/)</button>
         </div>
         <div class="muted" style="margin-top:6px">Opcional: agrega <code>assets/manifest.json</code> con un array de nombres de archivo para precargar estímulos desde GitHub Pages.</div>
-        <div class="row" style="margin-top:10px">
-          <button id="btnLoadAssets" class="btn">Cargar imágenes del repo (assets/)</button>
-        </div>
-        <div class="muted" style="margin-top:6px">Opcional: agrega <code>assets/manifest.json</code> con un array de nombres de archivo para precargar estímulos desde GitHub Pages.</div>
       </div>
       <div class="card">
         <h2>2 · Parámetros</h2>
@@ -105,7 +101,7 @@
         </div>
         <div class="row" style="margin-top:8px">
           <label class="toggle"><input id="togglePoints" type="checkbox" checked /> Mostrar puntos</label>
-          <label class="toggle"><input id="toggleHeat" type="checkbox" checked /> Mostrar heatmap</label>
+          <!-- Eliminado: toggle de heatmap en vivo -->
         </div>
       </div>
       <div class="card">
@@ -171,6 +167,11 @@
   <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
   <script>
   // =============================
+  // Versión (para cache-busting)
+  // =============================
+  const APP_VERSION = 'v0.3.1-noRealtime';
+
+  // =============================
   // Utilidades
   // =============================
   const $ = sel => document.querySelector(sel);
@@ -190,7 +191,6 @@
   let images = []; // {id, name, url, imgEl, w, h}
   let currentIndex = -1;
   let collecting = false;
-  let studyTimer = null;
   let startTime = 0;
   let sampleInterval = null;
   const pointsByImage = new Map(); // id -> [{t, x, y}]
@@ -201,8 +201,7 @@
     hmRadius: 60,
     hmIntensity: 1.0,
     sampleHz: 30,
-    showPoints: true,
-    showHeat: true,
+    showPoints: true
   };
 
   // Canvas y contexto
@@ -220,7 +219,6 @@
       c.width = Math.max(320, Math.floor(rect.width));
       c.height = Math.max(240, Math.floor(rect.height));
     }
-    // Redibujar si hay imagen activa
     if (currentIndex >= 0) drawCurrentImage();
     drawOverlays();
   }
@@ -272,13 +270,12 @@
   }
 
   // =============================
-  // Dibujo de imagen y overlays
+  // Dibujo de imagen y overlays (sin heatmap en vivo)
   // =============================
   function drawCurrentImage(){
     iCtx.clearRect(0,0,imageCanvas.width,imageCanvas.height);
     if (currentIndex<0 || !images[currentIndex]) return;
     const img = images[currentIndex].imgEl;
-    // encajar manteniendo proporción
     const stageW = imageCanvas.width, stageH = imageCanvas.height;
     const scale = Math.min(stageW/img.naturalWidth, stageH/img.naturalHeight);
     const drawW = img.naturalWidth * scale;
@@ -293,17 +290,14 @@
 
   function drawOverlays(){
     pCtx.clearRect(0,0,pointsCanvas.width,pointsCanvas.height);
-    hCtx.clearRect(0,0,heatCanvas.width,heatCanvas.height);
+    hCtx.clearRect(0,0,heatCanvas.width,heatCanvas.height); // no dibujamos heat en tiempo real
 
-    const showPts = document.getElementById('togglePoints').checked;
-    const showHm = document.getElementById('toggleHeat').checked;
     if (currentIndex<0 || !images[currentIndex]) return;
     const img = images[currentIndex];
     const rect = img._drawRect; if (!rect) return;
 
-    const pts = pointsByImage.get(img.id) || [];
-
-    if (showPts){
+    if (document.getElementById('togglePoints').checked){
+      const pts = pointsByImage.get(img.id) || [];
       pCtx.save();
       pCtx.fillStyle = 'rgba(255,255,255,.9)';
       for (const pt of pts){
@@ -314,21 +308,12 @@
       }
       pCtx.restore();
     }
-
-    if (showHm && pts.length){
-      const hm = renderHeatmap(pts, rect.drawW, rect.drawH, params.hmRadius, params.hmIntensity);
-      hCtx.save();
-      hCtx.globalAlpha = .9;
-      hCtx.drawImage(hm, rect.dx, rect.dy);
-      hCtx.restore();
-    }
   }
 
   // =============================
-  // Heatmap (acumulación + colorización)
+  // Heatmap (sólo al exportar)
   // =============================
   function renderHeatmap(normPoints, w, h, radius=60, intensity=1.0){
-    // normPoints: {x:[0..1], y:[0..1]}
     const acc = new OffscreenCanvas(w, h);
     const ctx = acc.getContext('2d');
     ctx.clearRect(0,0,w,h);
@@ -342,18 +327,18 @@
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
     }
-    // Leer acumulación (grises) y aplicar LUT de color
     const imgData = ctx.getImageData(0,0,w,h);
     const data = imgData.data;
-    // Construimos LUT de color tipo "inferno-ish" (simple)
+
+    // Paleta frío→caliente: azul→cian→verde→amarillo→naranja→rojo
     function colorLUT(t){ // t: 0..1
-      // paleta: negro -> morado -> rojo -> naranja -> amarillo
       const stops = [
-        [0.00,[0,0,0]],
-        [0.25,[55,0,135]],
-        [0.50,[180,30,60]],
-        [0.75,[255,120,20]],
-        [1.00,[255,220,40]],
+        [0.00,[0,32,128]],   // azul profundo
+        [0.20,[0,140,255]],  // cian
+        [0.40,[0,200,120]],  // verde
+        [0.60,[255,230,0]],  // amarillo
+        [0.80,[255,140,0]],  // naranja
+        [1.00,[230,30,0]]    // rojo
       ];
       for (let i=0;i<stops.length-1;i++){
         const [p0,c0]=stops[i], [p1,c1]=stops[i+1];
@@ -367,11 +352,11 @@
       }
       return stops[stops.length-1][1];
     }
-    // Normalizar por máximo local
+
+    // Normalización y colorización
     let maxV = 0;
     for (let i=0;i<data.length;i+=4){
-      const v = data[i]; // R canal (blanco acumulado)
-      if (v>maxV) maxV=v;
+      const v = data[i]; if (v>maxV) maxV=v;
     }
     const out = new OffscreenCanvas(w,h);
     const octx = out.getContext('2d');
@@ -381,22 +366,21 @@
     for (let i=0;i<data.length;i+=4){
       const v = data[i]*invMax; // 0..1
       const [r,g,b] = colorLUT(v);
-      od[i] = r; od[i+1]=g; od[i+2]=b; od[i+3] = Math.round(255 * (v));
+      od[i] = r; od[i+1]=g; od[i+2]=b; od[i+3] = Math.round(255 * Math.pow(v, 0.85)); // leve refuerzo en bajas intensidades
     }
     octx.putImageData(outData,0,0);
     return out;
   }
 
   // =============================
-  // WebGazer: inicio y muestreo
+  // WebGazer: inicio y muestreo (cámara intacta)
   // =============================
   const statusText = document.getElementById('statusText');
   async function startCamera(){
     statusText.textContent = 'Solicitando cámara...';
     try{
       await webgazer.setGazeListener(()=>{}).begin();
-      // Mejorar performance
-      webgazer.params.showVideoPreview = true; // lo ocultamos por CSS
+      webgazer.params.showVideoPreview = true; // oculto por CSS
       webgazer.params.showFaceOverlay = false;
       webgazer.params.showFaceFeedbackBox = false;
       statusText.textContent = 'Cámara lista';
@@ -408,7 +392,6 @@
   }
 
   function viewportToImageNorm(x,y){
-    // Convierte coordenadas de viewport (px) a coordenadas normalizadas dentro de la imagen dibujada
     const rect = images[currentIndex]?._drawRect;
     if (!rect) return null;
     if (x<rect.dx || y<rect.dy || x>rect.dx+rect.drawW || y>rect.dy+rect.drawH) return null;
@@ -424,7 +407,7 @@
     sampleInterval = setInterval(async ()=>{
       const pred = await webgazer.getCurrentPrediction();
       if (!pred) return;
-      const {x,y} = pred; // viewport px
+      const {x,y} = pred;
       const norm = viewportToImageNorm(x,y);
       if (!norm) return;
       const t = performance.now() - startTime;
@@ -432,7 +415,7 @@
       arr.push({t, x:norm.x, y:norm.y});
       document.getElementById('sampleCount').textContent = String(arr.length);
       if (document.getElementById('togglePoints').checked){
-        drawOverlays(); // simple refresco
+        drawOverlays(); // sólo puntos; no heatmap en vivo
       }
     }, period);
   }
@@ -456,14 +439,12 @@
       const d = document.createElement('div'); d.className='calib-dot'; d.dataset.count='0';
       d.title = 'Haz clic varias veces aquí';
       d.addEventListener('click', ()=>{
-        // WebGazer se autoentrena con clics/actividad; repetimos clics
         const c = parseInt(d.dataset.count,10)+1; d.dataset.count=String(c);
         d.style.background = c>=clicksNeededPerDot? '#22c55e' : '#1b84ff';
         d.style.boxShadow = c>=clicksNeededPerDot? '0 0 0 6px rgba(34,197,94,.25), 0 0 0 14px rgba(34,197,94,.12)' : '0 0 0 6px rgba(24,112,242,.2), 0 0 0 14px rgba(24,112,242,.07)';
       });
       dots.push(d); calibGrid.appendChild(d);
     }
-    // Esperar a que el usuario complete
     await new Promise(resolve=>{
       const checker = setInterval(()=>{
         const allGood = dots.every(d=> parseInt(d.dataset.count,10) >= clicksNeededPerDot );
@@ -480,7 +461,6 @@
   async function runStudy(){
     if (!images.length){ alert('Sube al menos una imagen.'); return; }
     if (!webgazer.isReady()){ alert('Primero inicia la cámara.'); return; }
-    // Reiniciar datos
     for (const it of images) pointsByImage.set(it.id, []);
     currentIndex = 0; drawCurrentImage();
     const trialSecs = Math.max(1, Number(document.getElementById('trialSeconds').value)||6);
@@ -498,7 +478,6 @@
       const t0 = performance.now();
       const endAt = t0 + trialSecs*1000;
       while (collecting && performance.now() < endAt){
-        const t = Math.max(0, endAt - performance.now());
         const elapsed = (performance.now()-tStartGlobal)/1000;
         timerEl.textContent = elapsed.toFixed(1)+'s';
         drawOverlays();
@@ -514,7 +493,7 @@
   function stopStudy(){ collecting=false; stopSampling(); statusText.textContent='Detenido'; }
 
   // =============================
-  // Exportes
+  // Exportes (aquí sí generamos heatmap)
   // =============================
   function exportCSV(){
     const rows = [['image','t_ms','x_norm','y_norm']];
@@ -534,7 +513,7 @@
     const pts = pointsByImage.get(img.id)||[];
     if (!pts.length){ alert('No hay datos para esta imagen.'); return; }
     const hm = renderHeatmap(pts, rect.drawW, rect.drawH, params.hmRadius, params.hmIntensity);
-    // Pasar a bitmap en un canvas normal (para toDataURL)
+    // Volcar a canvas normal para exportar
     const c = document.createElement('canvas'); c.width = rect.drawW; c.height = rect.drawH;
     const cx = c.getContext('2d');
     cx.drawImage(hm,0,0);
@@ -550,7 +529,6 @@
     const hm = renderHeatmap(pts, rect.drawW, rect.drawH, params.hmRadius, params.hmIntensity);
     const c = document.createElement('canvas'); c.width = rect.drawW; c.height = rect.drawH;
     const cx = c.getContext('2d');
-    // Redibujar solo el recorte de la imagen que se muestra
     cx.drawImage(images[currentIndex].imgEl, 0,0, rect.drawW, rect.drawH);
     cx.globalAlpha = .85; cx.drawImage(hm,0,0);
     c.toBlob(blob=> downloadBlob(blob, `composite_${sanitizeName(img.name)}.png`) );
@@ -559,36 +537,8 @@
   function sanitizeName(n){ return n.replace(/[^a-z0-9_\-\.]+/gi,'_'); }
 
   // =============================
-  // Eventos UI
+  // Cargar assets desde manifest (opcional)
   // =============================
-  document.getElementById('btnStartCam').onclick = startCamera;
-  document.getElementById('btnCalibrate').onclick = ()=>{
-    // Construimos los 9 puntos de la rejilla
-    buildCalibrationGrid(); runCalibration();
-  };
-  document.getElementById('btnRun').onclick = runStudy;
-  document.getElementById('btnStop').onclick = stopStudy;
-  document.getElementById('btnExportCSV').onclick = exportCSV;
-  document.getElementById('btnSaveHeat').onclick = saveHeatmapPNG;
-  document.getElementById('btnSaveComposite').onclick = saveCompositePNG;
-  document.getElementById('trialSeconds').oninput = e=> params.trialSeconds = Number(e.target.value)||6;
-  document.getElementById('hmRadius').oninput = e=> { params.hmRadius = Number(e.target.value)||60; drawOverlays(); };
-  document.getElementById('hmIntensity').oninput = e=> { params.hmIntensity = Number(e.target.value)||1.0; drawOverlays(); };
-  document.getElementById('sampleHz').oninput = e=> params.sampleHz = Number(e.target.value)||30;
-  document.getElementById('togglePoints').onchange = drawOverlays;
-  document.getElementById('toggleHeat').onchange = drawOverlays;
-
-  function buildCalibrationGrid(){
-    const grid = document.getElementById('calibGrid');
-    grid.innerHTML = '';
-    for (let r=0;r<3;r++){
-      for (let c=0;c<3;c++){
-        const dot = document.createElement('div'); dot.className='calib-dot'; grid.appendChild(dot);
-      }
-    }
-  }
-
-  // Carga desde manifest opcional (assets/manifest.json)
   async function loadAssetsFromManifest(){
     try{
       const resp = await fetch('assets/manifest.json', {cache:'no-store'});
@@ -611,12 +561,43 @@
     }
   }
 
+  // =============================
+  // Eventos UI
+  // =============================
+  document.getElementById('btnStartCam').onclick = startCamera;
+  document.getElementById('btnCalibrate').onclick = ()=>{
+    buildCalibrationGrid(); runCalibration();
+  };
+  document.getElementById('btnRun').onclick = runStudy;
+  document.getElementById('btnStop').onclick = stopStudy;
+  document.getElementById('btnExportCSV').onclick = exportCSV;
+  document.getElementById('btnSaveHeat').onclick = saveHeatmapPNG;
+  document.getElementById('btnSaveComposite').onclick = saveCompositePNG;
+  document.getElementById('trialSeconds').oninput = e=> params.trialSeconds = Number(e.target.value)||6;
+  document.getElementById('hmRadius').oninput = e=> { params.hmRadius = Number(e.target.value)||60; /* sin redraw de heat en vivo */ };
+  document.getElementById('hmIntensity').oninput = e=> { params.hmIntensity = Number(e.target.value)||1.0; /* sin redraw de heat en vivo */ };
+  document.getElementById('sampleHz').oninput = e=> params.sampleHz = Number(e.target.value)||30;
+  document.getElementById('togglePoints').onchange = drawOverlays;
   document.getElementById('btnLoadAssets').onclick = ()=>loadAssetsFromManifest();
 
+  function buildCalibrationGrid(){
+    const grid = document.getElementById('calibGrid');
+    grid.innerHTML = '';
+    for (let r=0;r<3;r++){
+      for (let c=0;c<3;c++){
+        const dot = document.createElement('div'); dot.className='calib-dot'; grid.appendChild(dot);
+      }
+    }
+  }
+
+  // =============================
   // Arranque
+  // =============================
   window.addEventListener('load', ()=>{
     resizeCanvases();
-    // Descomenta para autocargar del manifest si existe
+    const st = document.getElementById('statusText');
+    if (st) st.textContent = `Listo (${APP_VERSION})`;
+    // Si quieres precargar automáticamente: descomenta
     // loadAssetsFromManifest();
   });
   </script>
