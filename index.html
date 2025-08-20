@@ -297,74 +297,107 @@
 
   // ===== Heatmap (sólo al exportar) =====
   function renderHeatmap(normPoints, w, h, radius=60, intensity=1.0){
-    const acc = makeCanvas(w,h);
-    const ctx = acc.getContext('2d');
-    ctx.clearRect(0,0,w,h);
-    ctx.globalCompositeOperation = 'lighter';
+  // ---- acumulación en grises con compensación por radio ----
+  const acc = makeCanvas(w,h);
+  const ctx = acc.getContext('2d');
+  ctx.clearRect(0,0,w,h);
+  ctx.globalCompositeOperation = 'lighter';
 
-    const r = Math.max(8, radius|0);
-    for (const pt of normPoints){
-      const x = pt.x*w, y = pt.y*h;
-      const g = ctx.createRadialGradient(x,y,0,x,y,r);
-      g.addColorStop(0, `rgba(255,255,255,${0.15*intensity})`);
-      g.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
-    }
+  const r = Math.max(8, radius|0);
+  // Amplitud por punto ~ inversa al radio (evita saturación con radios grandes)
+  let amp = 0.15 * intensity * (60 / r);
+  amp = Math.max(0.035, Math.min(0.18, amp)); // límites de seguridad
 
-    const imgData = ctx.getImageData(0,0,w,h);
-    const data = imgData.data;
-
-    // Histograma (ignora 0) para percentil 99.5
-    const hist = new Uint32Array(256);
-    let nonzero=0;
-    for (let i=0;i<data.length;i+=4){ const v=data[i]; if (v>0){ hist[v]++; nonzero++; } }
-    if (!nonzero){ const out0=makeCanvas(w,h); out0.getContext('2d').clearRect(0,0,w,h); return out0; }
-
-    const tgt995 = Math.max(1, Math.round(nonzero*0.995));
-    let cum=0, p995=255;
-    for (let v=1; v<256; v++){ cum+=hist[v]; if (cum>=tgt995){ p995=v; break; } }
-    const scale = Math.max(80, p995); // piso robusto
-    const invScale = 1/scale;
-    const gamma = 0.75;
-
-    function colorLUT(t){
-      const stops = [
-        [0.00,[0,32,128]],   // azul
-        [0.20,[0,140,255]],  // cian
-        [0.40,[0,200,120]],  // verde
-        [0.60,[255,230,0]],  // amarillo
-        [0.80,[255,140,0]],  // naranja
-        [1.00,[230,30,0]]    // rojo
-      ];
-      for (let i=0;i<stops.length-1;i++){
-        const [p0,c0]=stops[i], [p1,c1]=stops[i+1];
-        if (t>=p0 && t<=p1){
-          const u=(t-p0)/(p1-p0);
-          return [
-            Math.round(c0[0]*(1-u)+c1[0]*u),
-            Math.round(c0[1]*(1-u)+c1[1]*u),
-            Math.round(c0[2]*(1-u)+c1[2]*u)
-          ];
-        }
-      }
-      return stops[stops.length-1][1];
-    }
-
-    const out = makeCanvas(w,h);
-    const octx = out.getContext('2d');
-    const outData = octx.createImageData(w,h);
-    const od = outData.data;
-
-    for (let i=0;i<data.length;i+=4){
-      let v = Math.min(1, data[i]*invScale);
-      v = Math.pow(v, gamma);
-      const [r,g,b] = colorLUT(v);
-      od[i]=r; od[i+1]=g; od[i+2]=b; od[i+3]=Math.round(255*v);
-    }
-    octx.putImageData(outData,0,0);
-    return out;
+  for (const pt of normPoints){
+    const x = pt.x * w, y = pt.y * h;
+    const g = ctx.createRadialGradient(x,y,0,x,y,r);
+    g.addColorStop(0, `rgba(255,255,255,${amp})`);
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
   }
+
+  // ---- leer grises y normalizar con dos percentiles (p20..p99.5) ----
+  const imgData = ctx.getImageData(0,0,w,h);
+  const data = imgData.data;
+
+  // histograma ignorando ceros
+  const hist = new Uint32Array(256);
+  let nonzero = 0;
+  for (let i=0;i<data.length;i+=4){
+    const v = data[i];
+    if (v>0){ hist[v]++; nonzero++; }
+  }
+  if (!nonzero){
+    const empty = makeCanvas(w,h);
+    empty.getContext('2d').clearRect(0,0,w,h);
+    return empty;
+  }
+
+  function quantileFromHist(q){
+    const target = Math.max(1, Math.round(nonzero * q));
+    let cum = 0;
+    for (let v=1; v<256; v++){
+      cum += hist[v];
+      if (cum >= target) return v;
+    }
+    return 255;
+  }
+
+  // percentiles robustos
+  const pLow  = Math.max(5, quantileFromHist(0.20));   // recorte bajo (fríos visibles)
+  const pHigh = Math.max(80, quantileFromHist(0.995)); // recorte alto con piso (evita todo rojo)
+  const den = Math.max(1, pHigh - pLow);
+  const gammaColor = 0.85;  // realza fríos
+  const gammaAlpha = 0.90;  // opacidad suave
+
+  // paleta frío→caliente
+  function colorLUT(t){
+    const stops = [
+      [0.00,[0,32,128]],   // azul
+      [0.20,[0,140,255]],  // cian
+      [0.40,[0,200,120]],  // verde
+      [0.60,[255,230,0]],  // amarillo
+      [0.80,[255,140,0]],  // naranja
+      [1.00,[230,30,0]]    // rojo
+    ];
+    for (let i=0;i<stops.length-1;i++){
+      const [p0,c0]=stops[i], [p1,c1]=stops[i+1];
+      if (t>=p0 && t<=p1){
+        const u=(t-p0)/(p1-p0);
+        return [
+          Math.round(c0[0]*(1-u)+c1[0]*u),
+          Math.round(c0[1]*(1-u)+c1[1]*u),
+          Math.round(c0[2]*(1-u)+c1[2]*u)
+        ];
+      }
+    }
+    return stops[stops.length-1][1];
+  }
+
+  // colorear
+  const out = makeCanvas(w,h);
+  const octx = out.getContext('2d');
+  const outData = octx.createImageData(w,h);
+  const od = outData.data;
+
+  for (let i=0;i<data.length;i+=4){
+    // normalización en [0,1] dentro de [pLow, pHigh]
+    let v = (data[i] - pLow) / den;
+    if (v < 0) v = 0;
+    else if (v > 1) v = 1;
+
+    const vc = Math.pow(v, gammaColor);
+    const [r,g,b] = colorLUT(vc);
+    od[i]   = r;
+    od[i+1] = g;
+    od[i+2] = b;
+    od[i+3] = Math.round(255 * Math.pow(v, gammaAlpha)); // alpha ligado a densidad
+  }
+
+  octx.putImageData(outData,0,0);
+  return out;
+}
 
   // ===== WebGazer: inicio (intacto + ajustes menores) y muestreo =====
   const statusText = document.getElementById('statusText');
