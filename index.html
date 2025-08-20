@@ -42,6 +42,7 @@
     .item .actions{display:flex;gap:6px}
     .toggle{display:flex;align-items:center;gap:8px}
     .toggle input{accent-color:var(--brand)}
+
     .stage-wrap{flex:1;display:flex;gap:12px;padding:16px}
     .stage{flex:1;display:grid;place-items:center;background:#0b0f14;border-left:1px solid #0f151d;position:relative;overflow:hidden}
     .canvas-layer{position:absolute;inset:0}
@@ -49,10 +50,12 @@
     #heatCanvas, #pointsCanvas{position:absolute;inset:0;pointer-events:none}
     .toolbar{position:sticky;top:0;background:linear-gradient(180deg,#0e141b,#0c1016);border-bottom:1px solid #111922;padding:10px 14px;display:flex;gap:10px;align-items:center}
     .spacer{flex:1}
+
     .calib-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.35);backdrop-filter:saturate(120%) blur(2px)}
     .calib-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:0}
     .calib-dot{width:16px;height:16px;border-radius:50%;background:#1b84ff;box-shadow:0 0 0 6px rgba(24,112,242,.2), 0 0 0 14px rgba(24,112,242,.07);margin:auto;cursor:crosshair}
     .calib-instructions{position:absolute;bottom:16px;left:16px;right:16px;background:rgba(9,12,16,.85);border:1px solid #141b24;border-radius:12px;padding:10px;color:#cbd5e1}
+
     video#webgazerVideoFeed, canvas#webgazerVideoCanvas, canvas#webgazerFaceOverlay, canvas#webgazerFaceFeedbackBox{display:none !important}
   </style>
 </head>
@@ -71,6 +74,7 @@
         </div>
         <div class="muted" style="margin-top:6px">Opcional: agrega <code>assets/manifest.json</code> con un array de nombres de archivo para precargar estímulos desde GitHub Pages.</div>
       </div>
+
       <div class="card">
         <h2>2 · Parámetros</h2>
         <div class="row">
@@ -86,17 +90,18 @@
         <div class="row" style="margin-top:8px">
           <div style="flex:1">
             <label>Intensidad heatmap (0.1–2.0)</label>
-            <input id="hmIntensity" type="number" step="0.1" min="0.1" max="2.0" value="1.0" />
+            <input id="hmIntensity" type="text" inputmode="decimal" value="1.0" />
           </div>
           <div style="flex:1">
             <label>FPS muestreo (Hz)</label>
-            <input id="sampleHz" type="number" min="5" max="60" value="30" />
+            <input id="sampleHz" type="number" min="1" max="60" value="30" />
           </div>
         </div>
         <div class="row" style="margin-top:8px">
           <label class="toggle"><input id="togglePoints" type="checkbox" checked /> Mostrar puntos</label>
         </div>
       </div>
+
       <div class="card">
         <h2>3 · Flujo</h2>
         <div class="row">
@@ -108,6 +113,7 @@
           <button id="btnStop" class="btn warn">Detener</button>
         </div>
       </div>
+
       <div class="card">
         <h2>Exportar</h2>
         <div class="row">
@@ -119,6 +125,7 @@
         </div>
         <div class="muted" style="margin-top:8px">Los exportes usan sólo datos locales; no se sube nada.</div>
       </div>
+
       <div class="card">
         <h2>Notas rápidas</h2>
         <ul class="muted" style="margin:6px 0 0 16px;line-height:1.6">
@@ -128,6 +135,7 @@
         </ul>
       </div>
     </aside>
+
     <main>
       <div class="toolbar">
         <div class="row">
@@ -141,14 +149,18 @@
           <span>Muestras:</span><span id="sampleCount">0</span>
         </div>
       </div>
+
       <div class="stage-wrap">
         <div class="stage" id="stage">
           <canvas id="imageCanvas" class="canvas-layer"></canvas>
           <canvas id="heatCanvas" class="canvas-layer"></canvas>
           <canvas id="pointsCanvas" class="canvas-layer"></canvas>
+
           <div class="calib-overlay" id="calibOverlay">
             <div class="calib-grid" id="calibGrid"></div>
-            <div class="calib-instructions" id="calibText">Haz clic varias veces en cada punto azul (mínimo 5 por punto). Avanza por los 9 puntos.</div>
+            <div class="calib-instructions" id="calibText">
+              Haz clic varias veces en cada punto azul (mínimo 5 por punto). Avanza por los 9 puntos.
+            </div>
           </div>
         </div>
       </div>
@@ -158,8 +170,8 @@
   <!-- WebGazer desde CDN oficial -->
   <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
   <script>
-  // ===== Versión visible (cache-busting) =====
-  const APP_VERSION = 'v0.3.2-fixCalib';
+  // ===== Versión =====
+  const APP_VERSION = 'v0.3.3-heatfix';
 
   // ===== Utilidades =====
   const $ = s => document.querySelector(s);
@@ -172,10 +184,17 @@
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(a.href), 1500);
   }
-  // Fallback si no hay OffscreenCanvas
+  // OffscreenCanvas fallback
   function makeCanvas(w,h){
     if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w,h);
     const c = document.createElement('canvas'); c.width=w; c.height=h; return c;
+  }
+  // Lectura robusta de decimales: acepta "0,1" o "0.1"
+  function num(val, def=0){
+    if (val == null) return def;
+    const s = String(val).trim().replace(',', '.');
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : def;
   }
 
   // ===== Estado =====
@@ -214,7 +233,7 @@
   }
   window.addEventListener('resize', resizeCanvases);
 
-  // ===== Carga y lista de imágenes =====
+  // ===== Carga de imágenes =====
   document.getElementById('fileInput').addEventListener('change', async (e)=>{
     const files = Array.from(e.target.files || []);
     for (const f of files){
@@ -252,7 +271,15 @@
       btnUp.onclick = ()=>{ if (idx>0){ const t = images[idx-1]; images[idx-1]=images[idx]; images[idx]=t; renderImageList(); }};
       btnDown.onclick=()=>{ if (idx<images.length-1){ const t = images[idx+1]; images[idx+1]=images[idx]; images[idx]=t; renderImageList(); }};
       btnView.onclick=()=>{ currentIndex = idx; drawCurrentImage(); };
-      btnDel.onclick = ()=>{ if(confirm('¿Eliminar esta imagen?')){ URL.revokeObjectURL(it.url); images.splice(idx,1); renderImageList(); if(currentIndex>=images.length) currentIndex=images.length-1; drawCurrentImage(); }};
+      btnDel.onclick = ()=>{
+        if(confirm('¿Eliminar esta imagen?')){
+          URL.revokeObjectURL(it.url);
+          images.splice(idx,1);
+          renderImageList();
+          if(currentIndex>=images.length) currentIndex=images.length-1;
+          drawCurrentImage();
+        }
+      };
       list.appendChild(el);
     });
   }
@@ -276,11 +303,12 @@
 
   function drawOverlays(){
     pCtx.clearRect(0,0,pointsCanvas.width,pointsCanvas.height);
-    hCtx.clearRect(0,0,heatCanvas.width,heatCanvas.height); // no heat en vivo
+    hCtx.clearRect(0,0,heatCanvas.width,heatCanvas.height); // no heatmap en vivo
 
     if (currentIndex<0 || !images[currentIndex]) return;
     const img = images[currentIndex];
     const rect = img._drawRect; if (!rect) return;
+
     if (document.getElementById('togglePoints').checked){
       const pts = pointsByImage.get(img.id) || [];
       pCtx.save();
@@ -297,109 +325,90 @@
 
   // ===== Heatmap (sólo al exportar) =====
   function renderHeatmap(normPoints, w, h, radius=60, intensity=1.0){
-  // ---- acumulación en grises con compensación por radio ----
-  const acc = makeCanvas(w,h);
-  const ctx = acc.getContext('2d');
-  ctx.clearRect(0,0,w,h);
-  ctx.globalCompositeOperation = 'lighter';
+    // acumulación en grises con compensación por radio
+    const acc = makeCanvas(w,h);
+    const ctx = acc.getContext('2d');
+    ctx.clearRect(0,0,w,h);
+    ctx.globalCompositeOperation = 'lighter';
 
-  const r = Math.max(8, radius|0);
-  // Amplitud por punto ~ inversa al radio (evita saturación con radios grandes)
-  let amp = 0.15 * intensity * (60 / r);
-  amp = Math.max(0.035, Math.min(0.18, amp)); // límites de seguridad
+    const r = Math.max(8, radius|0);
+    let amp = 0.15 * num(intensity,1.0) * (60 / r); // menos energía si el radio es grande
+    amp = Math.max(0.035, Math.min(0.18, amp));
 
-  for (const pt of normPoints){
-    const x = pt.x * w, y = pt.y * h;
-    const g = ctx.createRadialGradient(x,y,0,x,y,r);
-    g.addColorStop(0, `rgba(255,255,255,${amp})`);
-    g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
-  }
-
-  // ---- leer grises y normalizar con dos percentiles (p20..p99.5) ----
-  const imgData = ctx.getImageData(0,0,w,h);
-  const data = imgData.data;
-
-  // histograma ignorando ceros
-  const hist = new Uint32Array(256);
-  let nonzero = 0;
-  for (let i=0;i<data.length;i+=4){
-    const v = data[i];
-    if (v>0){ hist[v]++; nonzero++; }
-  }
-  if (!nonzero){
-    const empty = makeCanvas(w,h);
-    empty.getContext('2d').clearRect(0,0,w,h);
-    return empty;
-  }
-
-  function quantileFromHist(q){
-    const target = Math.max(1, Math.round(nonzero * q));
-    let cum = 0;
-    for (let v=1; v<256; v++){
-      cum += hist[v];
-      if (cum >= target) return v;
+    for (const pt of normPoints){
+      const x = pt.x*w, y = pt.y*h;
+      const g = ctx.createRadialGradient(x,y,0,x,y,r);
+      g.addColorStop(0, `rgba(255,255,255,${amp})`);
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
     }
-    return 255;
-  }
 
-  // percentiles robustos
-  const pLow  = Math.max(5, quantileFromHist(0.20));   // recorte bajo (fríos visibles)
-  const pHigh = Math.max(80, quantileFromHist(0.995)); // recorte alto con piso (evita todo rojo)
-  const den = Math.max(1, pHigh - pLow);
-  const gammaColor = 0.85;  // realza fríos
-  const gammaAlpha = 0.90;  // opacidad suave
+    const imgData = ctx.getImageData(0,0,w,h);
+    const data = imgData.data;
 
-  // paleta frío→caliente
-  function colorLUT(t){
-    const stops = [
-      [0.00,[0,32,128]],   // azul
-      [0.20,[0,140,255]],  // cian
-      [0.40,[0,200,120]],  // verde
-      [0.60,[255,230,0]],  // amarillo
-      [0.80,[255,140,0]],  // naranja
-      [1.00,[230,30,0]]    // rojo
-    ];
-    for (let i=0;i<stops.length-1;i++){
-      const [p0,c0]=stops[i], [p1,c1]=stops[i+1];
-      if (t>=p0 && t<=p1){
-        const u=(t-p0)/(p1-p0);
-        return [
-          Math.round(c0[0]*(1-u)+c1[0]*u),
-          Math.round(c0[1]*(1-u)+c1[1]*u),
-          Math.round(c0[2]*(1-u)+c1[2]*u)
-        ];
+    // histograma ignorando ceros
+    const hist = new Uint32Array(256);
+    let nonzero = 0;
+    for (let i=0;i<data.length;i+=4){
+      const v = data[i]; if (v>0){ hist[v]++; nonzero++; }
+    }
+    if (!nonzero){ const out0 = makeCanvas(w,h); out0.getContext('2d').clearRect(0,0,w,h); return out0; }
+
+    const qVal = q => {
+      const target = Math.max(1, Math.round(nonzero*q));
+      let cum=0; for (let v=1; v<256; v++){ cum+=hist[v]; if (cum>=target) return v; }
+      return 255;
+    };
+
+    // doble percentil con salvaguardas
+    let pLow  = Math.max(5, qVal(0.20));     // recorte bajo para ver fríos
+    let pHigh = Math.max(80, qVal(0.995));   // recorte alto con piso
+    if (pHigh - pLow < 80) pLow = Math.max(5, pHigh - 160); // rango mínimo
+    const den = Math.max(1, pHigh - pLow);
+
+    const gammaColor = 0.85, gammaAlpha = 0.90;
+
+    function colorLUT(t){
+      const stops = [
+        [0.00,[0,32,128]],   // azul
+        [0.20,[0,140,255]],  // cian
+        [0.40,[0,200,120]],  // verde
+        [0.60,[255,230,0]],  // amarillo
+        [0.80,[255,140,0]],  // naranja
+        [1.00,[230,30,0]]    // rojo
+      ];
+      for (let i=0;i<stops.length-1;i++){
+        const [p0,c0]=stops[i], [p1,c1]=stops[i+1];
+        if (t>=p0 && t<=p1){
+          const u=(t-p0)/(p1-p0);
+          return [
+            Math.round(c0[0]*(1-u)+c1[0]*u),
+            Math.round(c0[1]*(1-u)+c1[1]*u),
+            Math.round(c0[2]*(1-u)+c1[2]*u)
+          ];
+        }
       }
+      return stops[stops.length-1][1];
     }
-    return stops[stops.length-1][1];
+
+    const out = makeCanvas(w,h);
+    const octx = out.getContext('2d');
+    const outData = octx.createImageData(w,h);
+    const od = outData.data;
+
+    for (let i=0;i<data.length;i+=4){
+      let v = (data[i] - pLow) / den;        // normaliza a [0,1]
+      if (v < 0) v = 0; else if (v > 1) v = 1;
+      const vc = Math.pow(v, gammaColor);
+      const [cr,cg,cb] = colorLUT(vc);
+      od[i]=cr; od[i+1]=cg; od[i+2]=cb; od[i+3]=Math.round(255*Math.pow(v,gammaAlpha));
+    }
+    octx.putImageData(outData,0,0);
+    return out;
   }
 
-  // colorear
-  const out = makeCanvas(w,h);
-  const octx = out.getContext('2d');
-  const outData = octx.createImageData(w,h);
-  const od = outData.data;
-
-  for (let i=0;i<data.length;i+=4){
-    // normalización en [0,1] dentro de [pLow, pHigh]
-    let v = (data[i] - pLow) / den;
-    if (v < 0) v = 0;
-    else if (v > 1) v = 1;
-
-    const vc = Math.pow(v, gammaColor);
-    const [r,g,b] = colorLUT(vc);
-    od[i]   = r;
-    od[i+1] = g;
-    od[i+2] = b;
-    od[i+3] = Math.round(255 * Math.pow(v, gammaAlpha)); // alpha ligado a densidad
-  }
-
-  octx.putImageData(outData,0,0);
-  return out;
-}
-
-  // ===== WebGazer: inicio (intacto + ajustes menores) y muestreo =====
+  // ===== WebGazer: inicio y muestreo =====
   const statusText = document.getElementById('statusText');
   async function startCamera(){
     statusText.textContent = 'Solicitando cámara...';
@@ -408,7 +417,6 @@
       webgazer.params.showVideoPreview = true; // oculto por CSS
       webgazer.params.showFaceOverlay = false;
       webgazer.params.showFaceFeedbackBox = false;
-      // ajustes que no cambian tu flujo
       try { webgazer.showPredictionPoints(false); } catch {}
       try { webgazer.saveDataAcrossSessions(false); } catch {}
       statusText.textContent = `Cámara lista (${APP_VERSION})`;
@@ -428,10 +436,10 @@
     return {x:nx, y:ny};
   }
 
-  // Suavizado (EMA) para reducir jitter
+  // Suavizado EMA
   let ema = null; const ALPHA = 0.35;
   function startSampling(){
-    const hz = Math.max(5, Math.min(60, Number(document.getElementById('sampleHz').value)||30));
+    const hz = Math.max(1, Math.min(60, num($('#sampleHz').value, 30)));
     const period = 1000/hz;
     if (sampleInterval) clearInterval(sampleInterval);
     sampleInterval = setInterval(async ()=>{
@@ -444,14 +452,12 @@
       const arr = pointsByImage.get(images[currentIndex].id);
       arr.push({t, x:norm.x, y:norm.y});
       document.getElementById('sampleCount').textContent = String(arr.length);
-      if (document.getElementById('togglePoints').checked){
-        drawOverlays(); // sólo puntos
-      }
+      if (document.getElementById('togglePoints').checked) drawOverlays();
     }, period);
   }
   function stopSampling(){ if (sampleInterval){ clearInterval(sampleInterval); sampleInterval=null; } }
 
-  // ===== Calibración que SÍ entrena =====
+  // ===== Calibración (entrena con clicks) =====
   const calibOverlay = document.getElementById('calibOverlay');
   const calibGrid = document.getElementById('calibGrid');
   async function runCalibration(){
@@ -469,8 +475,7 @@
       d.addEventListener('click', ()=>{
         const c = parseInt(d.dataset.count,10)+1; d.dataset.count=String(c);
         const r=d.getBoundingClientRect(); const sx=r.left+r.width/2, sy=r.top+r.height/2;
-        // refuerzo: 3 muestras por clic
-        for (let k=0;k<3;k++){ try{ webgazer.recordScreenPosition(sx, sy, 'click'); }catch{} }
+        for (let k=0;k<3;k++){ try{ webgazer.recordScreenPosition(sx, sy, 'click'); }catch{} } // refuerzo
         d.style.background = c>=clicksNeededPerDot? '#22c55e' : '#1b84ff';
         d.style.boxShadow = c>=clicksNeededPerDot? '0 0 0 6px rgba(34,197,94,.25), 0 0 0 14px rgba(34,197,94,.12)' : '0 0 0 6px rgba(24,112,242,.2), 0 0 0 14px rgba(24,112,242,.07)';
       });
@@ -483,13 +488,13 @@
     statusText.textContent = 'Calibrado';
   }
 
-  // ===== Ejecución del estudio =====
+  // ===== Estudio =====
   async function runStudy(){
     if (!images.length){ alert('Sube al menos una imagen.'); return; }
     if (!webgazer.isReady()){ alert('Primero inicia la cámara.'); return; }
     for (const it of images) pointsByImage.set(it.id, []);
     currentIndex = 0; drawCurrentImage();
-    const trialSecs = Math.max(1, Number(document.getElementById('trialSeconds').value)||6);
+    const trialSecs = Math.max(1, num($('#trialSeconds').value, 6));
     collecting = true;
     statusText.textContent = 'Grabando...';
 
@@ -516,7 +521,7 @@
   }
   function stopStudy(){ collecting=false; stopSampling(); statusText.textContent='Detenido'; }
 
-  // ===== Exportes (ahí se genera el heatmap) =====
+  // ===== Exportes =====
   function exportCSV(){
     const rows = [['image','t_ms','x_norm','y_norm']];
     for (const it of images){
@@ -534,7 +539,7 @@
     const rect = img._drawRect; if (!rect) return;
     const pts = pointsByImage.get(img.id)||[];
     if (!pts.length){ alert('No hay datos para esta imagen.'); return; }
-    const hm = renderHeatmap(pts, rect.drawW, rect.drawH, params.hmRadius, params.hmIntensity);
+    const hm = renderHeatmap(pts, rect.drawW, rect.drawH, num($('#hmRadius').value, 60), num($('#hmIntensity').value, 1.0));
     const c = document.createElement('canvas'); c.width = rect.drawW; c.height = rect.drawH;
     const cx = c.getContext('2d');
     cx.drawImage(hm,0,0);
@@ -547,7 +552,7 @@
     const rect = img._drawRect; if (!rect) return;
     const pts = pointsByImage.get(img.id)||[];
     if (!pts.length){ alert('No hay datos para esta imagen.'); return; }
-    const hm = renderHeatmap(pts, rect.drawW, rect.drawH, params.hmRadius, params.hmIntensity);
+    const hm = renderHeatmap(pts, rect.drawW, rect.drawH, num($('#hmRadius').value, 60), num($('#hmIntensity').value, 1.0));
     const c = document.createElement('canvas'); c.width = rect.drawW; c.height = rect.drawH;
     const cx = c.getContext('2d');
     cx.drawImage(images[currentIndex].imgEl, 0,0, rect.drawW, rect.drawH);
@@ -557,7 +562,7 @@
 
   function sanitizeName(n){ return n.replace(/[^a-z0-9_\-\.]+/gi,'_'); }
 
-  // ===== Cargar assets desde manifest (opcional) =====
+  // ===== Assets desde manifest (opcional) =====
   async function loadAssetsFromManifest(){
     try{
       const resp = await fetch('assets/manifest.json', {cache:'no-store'});
@@ -588,10 +593,10 @@
   document.getElementById('btnExportCSV').onclick = exportCSV;
   document.getElementById('btnSaveHeat').onclick = saveHeatmapPNG;
   document.getElementById('btnSaveComposite').onclick = saveCompositePNG;
-  document.getElementById('trialSeconds').oninput = e=> params.trialSeconds = Number(e.target.value)||6;
-  document.getElementById('hmRadius').oninput = e=> params.hmRadius = Number(e.target.value)||60;
-  document.getElementById('hmIntensity').oninput = e=> params.hmIntensity = Number(e.target.value)||1.0;
-  document.getElementById('sampleHz').oninput = e=> params.sampleHz = Number(e.target.value)||30;
+  document.getElementById('trialSeconds').oninput = e=> params.trialSeconds = num(e.target.value, 6);
+  document.getElementById('hmRadius').oninput     = e=> { params.hmRadius    = num(e.target.value, 60); drawOverlays(); };
+  document.getElementById('hmIntensity').oninput  = e=> { params.hmIntensity = num(e.target.value, 1.0); drawOverlays(); };
+  document.getElementById('sampleHz').oninput     = e=> params.sampleHz      = num(e.target.value, 30);
   document.getElementById('togglePoints').onchange = drawOverlays;
   document.getElementById('btnLoadAssets').onclick = ()=>loadAssetsFromManifest();
 
