@@ -332,7 +332,7 @@
     ctx.globalCompositeOperation = 'lighter';
 
     const r = Math.max(8, radius|0);
-    let amp = 0.15 * num(intensity,1.0) * (60 / r); // menos energía si el radio es grande
+    let amp = 0.10 * num(intensity,1.0) * (60 / r); // menos energía si el radio es grande
     amp = Math.max(0.035, Math.min(0.18, amp));
 
     for (const pt of normPoints){
@@ -362,7 +362,7 @@
     };
 
     // doble percentil con salvaguardas
-    let pLow  = Math.max(5, qVal(0.20));     // recorte bajo para ver fríos
+    let pLow  = Math.max(5, qVal(0.30));     // recorte bajo para ver fríos
     let pHigh = Math.max(80, qVal(0.995));   // recorte alto con piso
     if (pHigh - pLow < 80) pLow = Math.max(5, pHigh - 160); // rango mínimo
     const den = Math.max(1, pHigh - pLow);
