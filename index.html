@@ -35,12 +35,23 @@
   .item img{width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid #1b2430}
   .item .meta{flex:1;min-width:0}
   .item .meta .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
   .stage-wrap{flex:1;display:flex;gap:12px;padding:16px}
   .stage{flex:1;display:grid;place-items:center;background:#0b0f14;border-left:1px solid #0f151d;position:relative;overflow:hidden}
   .canvas-layer{position:absolute;inset:0}
   #heatCanvas,#pointsCanvas{pointer-events:none}
   .toolbar{position:sticky;top:0;background:linear-gradient(180deg,#0e141b,#0c1016);border-bottom:1px solid #111922;padding:10px 14px;display:flex;gap:10px;align-items:center}
   .spacer{flex:1}
+
+  /* Botón de pantalla completa */
+  .fs-btn{
+    position:absolute; top:10px; right:10px; z-index:5;
+    background:rgba(0,0,0,.45); border:1px solid #2a3340; color:#e9eef5;
+    border-radius:10px; padding:6px 10px; cursor:pointer; font-weight:600;
+    backdrop-filter: blur(2px);
+  }
+  .fs-btn:hover{ background:rgba(0,0,0,.6); }
+
   .calib-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.35)}
   .calib-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr)}
   .calib-dot{width:16px;height:16px;border-radius:50%;background:#1b84ff;box-shadow:0 0 0 6px rgba(24,112,242,.2),0 0 0 14px rgba(24,112,242,.07);margin:auto;cursor:crosshair}
@@ -96,6 +107,7 @@
         <button id="btnRun" class="btn ok">Iniciar estudio</button>
         <button id="btnStop" class="btn warn">Detener</button>
       </div>
+      <div class="muted" style="margin-top:6px">Atajos: Q=Calibrar, W=Iniciar, E=Detener.</div>
     </div>
 
     <div class="card">
@@ -121,6 +133,9 @@
         <canvas id="heatCanvas" class="canvas-layer"></canvas>
         <canvas id="pointsCanvas" class="canvas-layer"></canvas>
 
+        <!-- Botón pantalla completa -->
+        <button id="btnFullscreen" class="fs-btn" title="Pantalla completa">⛶</button>
+
         <div class="calib-overlay" id="calibOverlay">
           <div class="calib-grid" id="calibGrid"></div>
         </div>
@@ -131,19 +146,19 @@
 
 <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
 <script>
-/* -------- utilidades -------- */
+/* ===== utilidades ===== */
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
 function downloadBlob(blob, filename){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 1200); }
 function num(v, d=0){ const n=parseFloat(String(v).replace(',','.')); return Number.isFinite(n)?n:d; }
 
-/* -------- estado -------- */
+/* ===== estado ===== */
 let images=[], currentIndex=-1, collecting=false, sampleInterval=null, startTime=0;
 const pointsByImage = new Map(); // id -> [{t,x,y}]
 const params = { trialSeconds:6, hmRadius:60, hmIntensity:1.0, sampleHz:30 };
 
-/* -------- canvas -------- */
+/* ===== canvas ===== */
 const imageCanvas = $('#imageCanvas'), pointsCanvas = $('#pointsCanvas'), heatCanvas = $('#heatCanvas'), stageEl = $('#stage');
 const iCtx = imageCanvas.getContext('2d'), pCtx = pointsCanvas.getContext('2d'), hCtx = heatCanvas.getContext('2d');
 function resizeCanvases(){
@@ -154,7 +169,7 @@ function resizeCanvases(){
 }
 addEventListener('resize', resizeCanvases);
 
-/* -------- carga imágenes -------- */
+/* ===== carga imágenes ===== */
 $('#fileInput').addEventListener('change', async (e)=>{
   const files = Array.from(e.target.files||[]);
   for(const f of files){
@@ -182,7 +197,7 @@ function renderImageList(){
   });
 }
 
-/* -------- dibujo -------- */
+/* ===== dibujo (sin HM en vivo) ===== */
 function drawCurrentImage(){
   iCtx.clearRect(0,0,imageCanvas.width,imageCanvas.height);
   if(currentIndex<0 || !images[currentIndex]) return;
@@ -197,7 +212,7 @@ function drawCurrentImage(){
 }
 function drawOverlays(){
   pCtx.clearRect(0,0,pointsCanvas.width,pointsCanvas.height);
-  hCtx.clearRect(0,0,heatCanvas.width,heatCanvas.height); // no HM en vivo
+  hCtx.clearRect(0,0,heatCanvas.width,heatCanvas.height);
   if(currentIndex<0) return;
   if(!$('#togglePoints').checked) return;
   const img = images[currentIndex], rect = img?._drawRect; if(!rect) return;
@@ -210,8 +225,7 @@ function drawOverlays(){
   pCtx.restore();
 }
 
-/* -------- HEATMAP KDE (desde cero) -------- */
-// Paleta frío→caliente
+/* ===== HEATMAP KDE (malla + blur + percentiles) ===== */
 function colorLUT(t){
   const stops = [
     [0.00,[0,32,128]],[0.20,[0,140,255]],[0.40,[0,200,120]],[0.60,[255,230,0]],[0.80,[255,140,0]],[1.00,[230,30,0]]
@@ -226,28 +240,18 @@ function colorLUT(t){
   }
   return stops.at(-1)[1];
 }
-// kernel gaussiano 1D
 function gaussianKernel1D(sigma){
   sigma=Math.max(0.8,sigma);
   const r = Math.max(1, Math.round(sigma*3));
-  const size = 2*r+1;
-  const k = new Float32Array(size);
-  const s2 = 2*sigma*sigma;
-  let sum=0;
+  const size = 2*r+1, k = new Float32Array(size); const s2 = 2*sigma*sigma; let sum=0;
   for(let i=-r,idx=0;i<=r;i++,idx++){ const v=Math.exp(-(i*i)/s2); k[idx]=v; sum+=v; }
-  for(let i=0;i<size;i++) k[i]/=sum;
-  return {k,r};
+  for(let i=0;i<size;i++) k[i]/=sum; return {k,r};
 }
-// convoluciones separables (bordes por clamp)
 function blurH(src, dst, W, H, k, r){
   for(let y=0;y<H;y++){
     const o=y*W;
     for(let x=0;x<W;x++){
-      let acc=0;
-      for(let i=-r;i<=r;i++){
-        const xi = Math.min(W-1, Math.max(0, x+i));
-        acc += src[o+xi] * k[i+r];
-      }
+      let acc=0; for(let i=-r;i<=r;i++){ const xi=Math.min(W-1,Math.max(0,x+i)); acc+=src[o+xi]*k[i+r]; }
       dst[o+x]=acc;
     }
   }
@@ -255,24 +259,17 @@ function blurH(src, dst, W, H, k, r){
 function blurV(src, dst, W, H, k, r){
   for(let y=0;y<H;y++){
     for(let x=0;x<W;x++){
-      let acc=0;
-      for(let i=-r;i<=r;i++){
-        const yi = Math.min(H-1, Math.max(0, y+i));
-        acc += src[yi*W+x] * k[i+r];
-      }
+      let acc=0; for(let i=-r;i<=r;i++){ const yi=Math.min(H-1,Math.max(0,y+i)); acc+=src[yi*W+x]*k[i+r]; }
       dst[y*W+x]=acc;
     }
   }
 }
-// renderer principal
 function renderHeatmapKDE(normPoints, w, h, radius=60, intensity=1.0){
-  // malla reducida (máx. 512 px por lado)
   const maxSide = 512;
   const scale = Math.max(1, Math.ceil(Math.max(w,h) / maxSide));
   const W = Math.max(8, Math.floor(w/scale));
   const H = Math.max(8, Math.floor(h/scale));
 
-  // 1) contar puntos en malla
   const grid = new Float32Array(W*H);
   for(const p of normPoints){
     const x = Math.min(W-1, Math.max(0, Math.floor(p.x*W)));
@@ -280,7 +277,6 @@ function renderHeatmapKDE(normPoints, w, h, radius=60, intensity=1.0){
     grid[y*W+x] += 1;
   }
 
-  // 2) blur gaussiano (sigma en unidades de malla)
   const sigma = Math.max(0.8, (radius/scale) * 0.5);
   const {k,r} = gaussianKernel1D(sigma);
   const tmp = new Float32Array(W*H);
@@ -288,46 +284,31 @@ function renderHeatmapKDE(normPoints, w, h, radius=60, intensity=1.0){
   blurH(grid,tmp,W,H,k,r);
   blurV(tmp,blur1,W,H,k,r);
 
-  // 3) exposición por intensidad
   for(let i=0;i<blur1.length;i++) blur1[i] *= Math.max(0.05, intensity);
 
-  // 4) percentiles robustos (qLow=0.20, qHigh=0.995)
   const vals = Array.from(blur1).filter(v=>v>0);
-  if(!vals.length){
-    const empty = document.createElement('canvas'); empty.width=w; empty.height=h;
-    return empty;
-  }
+  if(!vals.length){ const empty=document.createElement('canvas'); empty.width=w; empty.height=h; return empty; }
   vals.sort((a,b)=>a-b);
   const q = (arr,p) => arr[Math.min(arr.length-1, Math.max(0, Math.floor(p*arr.length)))];
   let pLow = q(vals,0.20), pHigh = q(vals,0.995);
   if(pHigh <= pLow){ pLow = Math.max(0, pHigh*0.5); pHigh = pLow + 1e-6; }
+  const den = pHigh - pLow, gammaC=0.90, gammaA=0.92;
 
-  // 5) colorear en malla pequeña
   const small = document.createElement('canvas'); small.width=W; small.height=H;
   const sctx = small.getContext('2d', {willReadFrequently:true});
-  const im = sctx.createImageData(W,H);
-  const od = im.data;
-  const den = pHigh - pLow;
-  const gammaC=0.90, gammaA=0.92;
-
+  const im = sctx.createImageData(W,H), od = im.data;
   for(let i=0;i<blur1.length;i++){
     let v = (blur1[i]-pLow)/den; if(v<0)v=0; if(v>1)v=1;
-    const vc = Math.pow(v, gammaC);
-    const [R,G,B] = colorLUT(vc);
-    const off = i*4;
-    od[off]=R; od[off+1]=G; od[off+2]=B; od[off+3]=Math.round(255*Math.pow(v,gammaA));
+    const vc=Math.pow(v,gammaC); const [R,G,B]=colorLUT(vc);
+    const off=i*4; od[off]=R; od[off+1]=G; od[off+2]=B; od[off+3]=Math.round(255*Math.pow(v,gammaA));
   }
   sctx.putImageData(im,0,0);
-
-  // 6) escalar suavemente a tamaño final
   const out = document.createElement('canvas'); out.width=w; out.height=h;
-  const octx = out.getContext('2d');
-  octx.imageSmoothingEnabled = true;
-  octx.drawImage(small, 0,0,w,h);
+  const octx = out.getContext('2d'); octx.imageSmoothingEnabled=true; octx.drawImage(small,0,0,w,h);
   return out;
 }
 
-/* -------- cámara / muestreo -------- */
+/* ===== cámara / muestreo ===== */
 const statusText = $('#statusText');
 async function startCamera(){
   statusText.textContent='Solicitando cámara...';
@@ -369,7 +350,7 @@ function startSampling(){
 }
 function stopSampling(){ if(sampleInterval){ clearInterval(sampleInterval); sampleInterval=null; } }
 
-/* -------- calibración mínima -------- */
+/* ===== calibración ===== */
 const calibOverlay = $('#calibOverlay'), calibGrid = $('#calibGrid');
 function buildCalibrationGrid(){ calibGrid.innerHTML=''; for(let i=0;i<9;i++){ const d=document.createElement('div'); d.className='calib-dot'; calibGrid.appendChild(d); } }
 async function runCalibration(){
@@ -396,7 +377,7 @@ async function runCalibration(){
   statusText.textContent='Calibrado';
 }
 
-/* -------- estudio -------- */
+/* ===== estudio ===== */
 async function runStudy(){
   if(!images.length){ alert('Sube al menos una imagen.'); return; }
   if(!webgazer.isReady()){ alert('Primero inicia la cámara.'); return; }
@@ -420,7 +401,7 @@ async function runStudy(){
 }
 function stopStudy(){ collecting=false; stopSampling(); statusText.textContent='Detenido'; }
 
-/* -------- exportes -------- */
+/* ===== exportes ===== */
 function exportCSV(){
   const rows=[['image','t_ms','x_norm','y_norm']];
   for(const it of images){
@@ -452,9 +433,34 @@ function saveCompositePNG(){
 }
 function sanitize(n){ return n.replace(/[^a-z0-9_\-\.]+/gi,'_'); }
 
-/* -------- UI -------- */
+/* ===== pantalla completa ===== */
+function toggleFullscreen(){
+  const el = stageEl;
+  if (!document.fullscreenElement){
+    el.requestFullscreen?.().catch(()=>{});
+  } else {
+    document.exitFullscreen?.();
+  }
+}
+$('#btnFullscreen').onclick = toggleFullscreen;
+document.addEventListener('fullscreenchange', ()=>{ resizeCanvases(); });
+
+/* ===== atajos de teclado (Q,W,E) ===== */
+document.addEventListener('keydown', (ev)=>{
+  // no interferir si se escribe en inputs o hay modificadores
+  const tag = (ev.target && ev.target.tagName)||'';
+  if (ev.ctrlKey||ev.metaKey||ev.altKey) return;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || ev.target.isContentEditable) return;
+
+  const k = ev.key.toLowerCase();
+  if (k==='q'){ buildCalibrationGrid(); runCalibration(); }
+  else if (k==='w'){ runStudy(); }
+  else if (k==='e'){ stopStudy(); }
+});
+
+/* ===== UI ===== */
 $('#btnStartCam').onclick=startCamera;
-$('#btnCalibrate').onclick=runCalibration;
+$('#btnCalibrate').onclick=()=>{ buildCalibrationGrid(); runCalibration(); };
 $('#btnRun').onclick=runStudy;
 $('#btnStop').onclick=stopStudy;
 $('#btnExportCSV').onclick=exportCSV;
@@ -465,7 +471,7 @@ $('#hmRadius').oninput=e=>params.hmRadius=num(e.target.value,60);
 $('#hmIntensity').oninput=e=>params.hmIntensity=num(e.target.value,1.0);
 $('#sampleHz').oninput=e=>params.sampleHz=num(e.target.value,30);
 
-/* -------- arranque -------- */
+/* ===== arranque ===== */
 addEventListener('load', ()=>{ resizeCanvases(); });
 </script>
 </body>
